@@ -1,4 +1,4 @@
-/ ============================================
+// ============================================
 // FILE: src/components/Rules.jsx
 // ============================================
 import React from 'react';
@@ -66,3 +66,4 @@ const Rules = ({ darkMode, t, rules, setRules }) => {
 };
 
 export default Rules;
+
