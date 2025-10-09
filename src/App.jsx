@@ -1,10 +1,20 @@
 // ============================================
-// FILE: src/App.jsx
+// FILE: src/App.jsx - COMPLETE VERSION
 // ============================================
 import React, { useState, useEffect } from 'react';
+import { useAuth } from './context/AuthContext';
 import { translations } from './translations';
+
+// Auth Components
+import AuthPage from './components/Auth/AuthPage';
+import MessSetup from './components/Auth/MessSetup';
+
+// Main Components
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
+import Footer from './components/Footer';
+
+// Page Components
 import Dashboard from './components/Dashboard';
 import Members from './components/Members';
 import Meals from './components/Meals';
@@ -14,9 +24,9 @@ import Rules from './components/Rules';
 import Voting from './components/Voting';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
-import Setup from './components/Setup';
 
 const App = () => {
+  const { user, member, mess, loading } = useAuth();
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved ? JSON.parse(saved) : false;
@@ -27,16 +37,8 @@ const App = () => {
     return saved || 'bn';
   });
   
-  const [currentPage, setCurrentPage] = useState('setup');
+  const [currentPage, setCurrentPage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [messData, setMessData] = useState(null);
-  const [members, setMembers] = useState([]);
-  const [meals, setMeals] = useState([]);
-  const [expenses, setExpenses] = useState([]);
-  const [menuItems, setMenuItems] = useState([]);
-  const [rules, setRules] = useState([]);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [votes, setVotes] = useState({});
 
   const t = translations[language];
 
@@ -49,45 +51,49 @@ const App = () => {
     localStorage.setItem('language', language);
   }, [language]);
 
-  const handleCreateMess = (messInfo, userInfo) => {
-    setMessData(messInfo);
-    setCurrentUser(userInfo);
-    setMembers([userInfo]);
-    setCurrentPage('dashboard');
-  };
-
-  if (currentPage === 'setup') {
+  // Show loading state
+  if (loading) {
     return (
-      <Setup
+      <div className="min-h-screen flex items-center justify-center bg-gray-900">
+        <div className="text-white text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  // Not authenticated - show auth page
+  if (!user) {
+    return (
+      <AuthPage 
         darkMode={darkMode}
         setDarkMode={setDarkMode}
         language={language}
         setLanguage={setLanguage}
-        onCreateMess={handleCreateMess}
         t={t}
       />
     );
   }
 
+  // Authenticated but no mess - show mess setup
+  if (!mess || !member) {
+    return (
+      <MessSetup
+        darkMode={darkMode}
+        setDarkMode={setDarkMode}
+        language={language}
+        setLanguage={setLanguage}
+        t={t}
+      />
+    );
+  }
+
+  // Full app with mess
   const renderPage = () => {
     const props = {
       darkMode,
       language,
       t,
-      messData,
-      members,
-      setMembers,
-      meals,
-      setMeals,
-      expenses,
-      setExpenses,
-      menuItems,
-      setMenuItems,
-      rules,
-      setRules,
-      votes,
-      setVotes,
-      currentUser
+      mess,
+      member
     };
 
     switch (currentPage) {
@@ -108,7 +114,7 @@ const App = () => {
       case 'reports':
         return <Reports {...props} />;
       case 'settings':
-        return <Settings darkMode={darkMode} setDarkMode={setDarkMode} language={language} setLanguage={setLanguage} t={t} />;
+        return <Settings {...props} darkMode={darkMode} setDarkMode={setDarkMode} language={language} setLanguage={setLanguage} />;
       default:
         return <Dashboard {...props} />;
     }
@@ -123,8 +129,8 @@ const App = () => {
         setLanguage={setLanguage}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
-        messData={messData}
-        currentUser={currentUser}
+        mess={mess}
+        member={member}
         t={t}
       />
       
@@ -137,10 +143,12 @@ const App = () => {
           t={t}
         />
         
-        <main className="flex-1 p-6">
+        <main className="flex-1 p-6 pb-20">
           {renderPage()}
         </main>
       </div>
+
+      <Footer darkMode={darkMode} t={t} />
     </div>
   );
 };
