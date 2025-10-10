@@ -1,10 +1,19 @@
 // ============================================
-// FILE: src/components/Settings.jsx
+// FILE: src/components/Settings.jsx - WITH LOGOUT
 // ============================================
 import React from 'react';
 import { LogOut } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const Settings = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
+  const { signOut } = useAuth();
+
+  const handleLogout = async () => {
+    if (window.confirm(t.confirm + ' ' + t.logout + '?')) {
+      await signOut();
+    }
+  };
+
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6">{t.settings}</h2>
@@ -55,7 +64,10 @@ const Settings = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
         </div>
 
         <div className="pt-4 border-t border-gray-300 dark:border-gray-700">
-          <button className="flex items-center gap-2 text-red-500 hover:text-red-600">
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-2 text-red-500 hover:text-red-600 transition"
+          >
             <LogOut className="w-5 h-5" />
             <span>{t.logout}</span>
           </button>
@@ -64,4 +76,5 @@ const Settings = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
     </div>
   );
 };
+
 export default Settings;
