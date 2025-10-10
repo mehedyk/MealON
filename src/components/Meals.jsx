@@ -1,25 +1,69 @@
 // ============================================
-// FILE: src/components/Meals.jsx
+// FILE: src/components/Meals.jsx - WITH SUPABASE
 // ============================================
-import React from 'react';
-import { Bell } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Bell, Calendar as CalendarIcon } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
-const Meals = ({ darkMode, t, meals, setMeals, members, currentUser }) => {
-  const handleLogMeal = (e) => {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    const newMeal = {
-      id: Date.now(),
-      member_id: currentUser.id,
-      meal_date: formData.get('mealDate'),
-      breakfast: formData.get('breakfast') === 'on',
-      lunch: formData.get('lunch') === 'on',
-      dinner: formData.get('dinner') === 'on',
-      created_at: new Date().toISOString()
-    };
-    setMeals([...meals, newMeal]);
-    e.target.reset();
+const Meals = ({ darkMode, t, mess, member }) => {
+  const [meals, setMeals] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    loadData();
+  }, [mess.id]);
+
+  const loadData = async () => {
+    try {
+      const [mealsRes, membersRes] = await Promise.all([
+        supabase.from('meals').select('*').eq('mess_id', mess.id).order('meal_date', { ascending: false }),
+        supabase.from('members').select('*').eq('mess_id', mess.id)
+      ]);
+
+      setMeals(mealsRes.data || []);
+      setMembers(membersRes.data || []);
+    } catch (error) {
+      console.error('Error loading meals:', error);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleLogMeal = async (e) => {
+    e.preventDefault();
+    setMessage('');
+    
+    const formData = new FormData(e.target);
+    const mealDate = formData.get('mealDate');
+    const breakfast = formData.get('breakfast') === 'on';
+    const lunch = formData.get('lunch') === 'on';
+    const dinner = formData.get('dinner') === 'on';
+
+    try {
+      const { error } = await supabase
+        .from('meals')
+        .upsert([{
+          mess_id: mess.id,
+          member_id: member.id,
+          meal_date: mealDate,
+          breakfast,
+          lunch,
+          dinner
+        }], { onConflict: 'member_id,meal_date' });
+
+      if (error) throw error;
+
+      setMessage(t.success + '!');
+      e.target.reset();
+      loadData();
+    } catch (error) {
+      setMessage('Error: ' + error.message);
+    }
+  };
+
+  if (loading) return <div className="text-center py-12">{t.loading}</div>;
 
   return (
     <div>
@@ -59,6 +103,11 @@ const Meals = ({ darkMode, t, meals, setMeals, members, currentUser }) => {
               <span>{t.dinner}</span>
             </label>
           </div>
+          {message && (
+            <div className={`p-3 rounded-lg text-sm ${message.includes('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+              {message}
+            </div>
+          )}
           <button type="submit" className="w-full bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 transition">
             {t.save}
           </button>
@@ -68,13 +117,13 @@ const Meals = ({ darkMode, t, meals, setMeals, members, currentUser }) => {
       <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
         <h3 className="text-xl font-bold mb-4">{t.mealLogs}</h3>
         <div className="space-y-3">
-          {meals.slice().reverse().map(meal => {
-            const member = members.find(m => m.id === meal.member_id);
+          {meals.map(meal => {
+            const mealMember = members.find(m => m.id === meal.member_id);
             return (
               <div key={meal.id} className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-bold">{member?.name || 'Unknown'}</p>
+                    <p className="font-bold">{mealMember?.name || 'Unknown'}</p>
                     <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                       {new Date(meal.meal_date).toLocaleDateString()}
                     </p>
