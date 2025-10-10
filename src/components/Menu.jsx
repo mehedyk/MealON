@@ -1,24 +1,64 @@
 // ============================================
-// FILE: src/components/Menu.jsx
+// FILE: src/components/Menu.jsx - WITH SUPABASE
 // ============================================
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
-const Menu = ({ darkMode, t, menuItems, setMenuItems }) => {
-  const handleAddMenuItem = (e) => {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    const newItem = {
-      id: Date.now(),
-      dish: formData.get('dishName'),
-      meal_type: formData.get('mealType'),
-      menu_date: formData.get('menuDate'),
-      created_at: new Date().toISOString()
-    };
-    setMenuItems([...menuItems, newItem]);
-    e.target.reset();
+const Menu = ({ darkMode, t, mess, member }) => {
+  const [menuItems, setMenuItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const today = new Date().toISOString().split('T')[0];
+
+  useEffect(() => {
+    loadMenuItems();
+  }, [mess.id]);
+
+  const loadMenuItems = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('menu_items')
+        .select('*')
+        .eq('mess_id', mess.id)
+        .gte('menu_date', today)
+        .order('menu_date', { ascending: true });
+
+      if (error) throw error;
+      setMenuItems(data || []);
+    } catch (error) {
+      console.error('Error loading menu:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const today = new Date().toISOString().split('T')[0];
+  const handleAddMenuItem = async (e) => {
+    e.preventDefault();
+    setMessage('');
+    
+    const formData = new FormData(e.target);
+
+    try {
+      const { error } = await supabase
+        .from('menu_items')
+        .insert([{
+          mess_id: mess.id,
+          dish: formData.get('dishName'),
+          meal_type: formData.get('mealType'),
+          menu_date: formData.get('menuDate')
+        }]);
+
+      if (error) throw error;
+
+      setMessage(t.success + '!');
+      e.target.reset();
+      loadMenuItems();
+    } catch (error) {
+      setMessage('Error: ' + error.message);
+    }
+  };
+
+  if (loading) return <div className="text-center py-12">{t.loading}</div>;
 
   return (
     <div>
@@ -52,6 +92,11 @@ const Menu = ({ darkMode, t, menuItems, setMenuItems }) => {
               className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
             />
           </div>
+          {message && (
+            <div className={`p-3 rounded-lg text-sm ${message.includes('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+              {message}
+            </div>
+          )}
           <button type="submit" className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition">
             {t.add}
           </button>
@@ -62,7 +107,7 @@ const Menu = ({ darkMode, t, menuItems, setMenuItems }) => {
         {['breakfast', 'lunch', 'dinner'].map(mealType => (
           <div key={mealType} className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
             <h3 className="text-lg font-bold mb-4 capitalize">
-              {mealType === 'breakfast' ? t.breakfast : mealType === 'lunch' ? t.lunch : t.dinner}
+              {t[mealType]}
             </h3>
             <div className="space-y-2">
               {menuItems
