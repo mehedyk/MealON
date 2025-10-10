@@ -1,22 +1,128 @@
 // ============================================
 // FILE: src/components/Reports.jsx
 // ============================================
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { Download } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
-const Reports = ({ darkMode, t, members, meals, expenses }) => {
+const Reports = ({ darkMode, t, mess, member }) => {
+  const [members, setMembers] = useState([]);
+  const [meals, setMeals] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, [mess.id]);
+
+  const loadData = async () => {
+    try {
+      const [membersRes, mealsRes, expensesRes] = await Promise.all([
+        supabase.from('members').select('*').eq('mess_id', mess.id),
+        supabase.from('meals').select('*').eq('mess_id', mess.id),
+        supabase.from('expenses').select('*').eq('mess_id', mess.id)
+      ]);
+
+      setMembers(membersRes.data || []);
+      setMeals(mealsRes.data || []);
+      setExpenses(expensesRes.data || []);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const calculateMealStats = () => {
     const currentMonth = new Date().getMonth();
     const monthMeals = meals.filter(m => new Date(m.meal_date).getMonth() === currentMonth);
     const totalMeals = monthMeals.reduce((acc, m) => 
       acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0
     );
-    const totalExpenseAmount = expenses.reduce((acc, e) => acc + e.amount, 0);
+    const totalExpenseAmount = expenses.reduce((acc, e) => acc + parseFloat(e.amount), 0);
     const mealRate = totalMeals > 0 ? totalExpenseAmount / totalMeals : 0;
     
     return { totalMeals, mealRate, totalExpenseAmount };
   };
 
   const stats = calculateMealStats();
+
+  // PDF Export Function
+  const exportToPDF = async () => {
+    try {
+      const { jsPDF } = await import('jspdf');
+      await import('jspdf-autotable');
+      
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.width;
+      
+      // Title
+      doc.setFontSize(20);
+      doc.setFont(undefined, 'bold');
+      doc.text(mess.name, pageWidth / 2, 15, { align: 'center' });
+      
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'normal');
+      doc.text('Monthly Report', pageWidth / 2, 22, { align: 'center' });
+      doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth / 2, 28, { align: 'center' });
+      
+      // Summary Stats
+      doc.setFontSize(14);
+      doc.setFont(undefined, 'bold');
+      doc.text('Summary', 14, 40);
+      
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'normal');
+      doc.text(`Total Members: ${members.length}`, 14, 48);
+      doc.text(`Total Meals: ${stats.totalMeals}`, 14, 54);
+      doc.text(`Total Expenses: ৳${stats.totalExpenseAmount.toFixed(2)}`, 14, 60);
+      doc.text(`Meal Rate: ৳${stats.mealRate.toFixed(2)}`, 14, 66);
+      
+      // Member-wise Table
+      const tableData = members.map(member => {
+        const memberMeals = meals
+          .filter(m => m.member_id === member.id)
+          .reduce((acc, m) => acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0);
+        const memberExpenses = expenses
+          .filter(e => e.paid_by === member.id)
+          .reduce((acc, e) => acc + parseFloat(e.amount), 0);
+        const memberShare = stats.mealRate * memberMeals;
+        const memberBalance = memberExpenses - memberShare;
+        
+        return [
+          member.name,
+          memberMeals.toString(),
+          `৳${memberExpenses.toFixed(2)}`,
+          `৳${memberShare.toFixed(2)}`,
+          `৳${Math.abs(memberBalance).toFixed(2)} ${memberBalance >= 0 ? '(owed)' : '(owes)'}`
+        ];
+      });
+      
+      doc.autoTable({
+        startY: 75,
+        head: [['Member', 'Meals', 'Paid', 'Share', 'Balance']],
+        body: tableData,
+        theme: 'grid',
+        styles: { fontSize: 9, font: 'helvetica' },
+        headStyles: { fillColor: [59, 130, 246], textColor: 255 }
+      });
+      
+      // Mess Code
+      const finalY = doc.lastAutoTable.finalY + 10;
+      doc.setFontSize(10);
+      doc.text(`Mess Code: ${mess.mess_code}`, 14, finalY);
+      
+      // Save
+      doc.save(`${mess.name}_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (error) {
+      console.error('PDF export error:', error);
+      alert('Error exporting PDF. Please try again.');
+    }
+  };
+
+  if (loading) {
+    return <div className="text-center py-12">{t.loading}</div>;
+  }
 
   return (
     <div>
@@ -43,7 +149,11 @@ const Reports = ({ darkMode, t, members, meals, expenses }) => {
               <p className="text-2xl font-bold">৳{stats.mealRate.toFixed(2)}</p>
             </div>
           </div>
-          <button className="bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition">
+          <button 
+            onClick={exportToPDF}
+            className="flex items-center gap-2 bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition"
+          >
+            <Download className="w-5 h-5" />
             {t.export} PDF
           </button>
         </div>
@@ -63,17 +173,17 @@ const Reports = ({ darkMode, t, members, meals, expenses }) => {
               </tr>
             </thead>
             <tbody>
-              {members.map(member => {
+              {members.map(memberItem => {
                 const memberMeals = meals
-                  .filter(m => m.member_id === member.id)
+                  .filter(m => m.member_id === memberItem.id)
                   .reduce((acc, m) => acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0);
-                const memberExpenses = expenses.filter(e => e.paid_by === member.id).reduce((acc, e) => acc + e.amount, 0);
+                const memberExpenses = expenses.filter(e => e.paid_by === memberItem.id).reduce((acc, e) => acc + parseFloat(e.amount), 0);
                 const memberShare = stats.mealRate * memberMeals;
                 const memberBalance = memberExpenses - memberShare;
                 
                 return (
-                  <tr key={member.id} className={`border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                    <td className="p-3 font-medium">{member.name}</td>
+                  <tr key={memberItem.id} className={`border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                    <td className="p-3 font-medium">{memberItem.name}</td>
                     <td className="p-3">{memberMeals}</td>
                     <td className="p-3">৳{memberExpenses.toFixed(2)}</td>
                     <td className="p-3">৳{memberShare.toFixed(2)}</td>
