@@ -1,10 +1,54 @@
 // ============================================
 // FILE: src/components/Dashboard.jsx
 // ============================================
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { DollarSign, Calendar, TrendingUp, Users } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
-const Dashboard = ({ darkMode, t, members, meals, expenses, currentUser }) => {
+const Dashboard = ({ darkMode, t, mess, member }) => {
+  const [members, setMembers] = useState([]);
+  const [meals, setMeals] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+    
+    // Subscribe to realtime updates
+    const mealsSubscription = supabase
+      .channel('meals_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'meals' }, loadData)
+      .subscribe();
+      
+    const expensesSubscription = supabase
+      .channel('expenses_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, loadData)
+      .subscribe();
+
+    return () => {
+      mealsSubscription.unsubscribe();
+      expensesSubscription.unsubscribe();
+    };
+  }, [mess.id]);
+
+  const loadData = async () => {
+    try {
+      const [membersRes, mealsRes, expensesRes] = await Promise.all([
+        supabase.from('members').select('*').eq('mess_id', mess.id),
+        supabase.from('meals').select('*').eq('mess_id', mess.id),
+        supabase.from('expenses').select('*').eq('mess_id', mess.id)
+      ]);
+
+      setMembers(membersRes.data || []);
+      setMeals(mealsRes.data || []);
+      setExpenses(expensesRes.data || []);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const calculateMealStats = () => {
     const currentMonth = new Date().getMonth();
     const monthMeals = meals.filter(m => new Date(m.meal_date).getMonth() === currentMonth);
@@ -12,10 +56,10 @@ const Dashboard = ({ darkMode, t, members, meals, expenses, currentUser }) => {
       acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0
     );
     const userMeals = monthMeals
-      .filter(m => m.member_id === currentUser?.id)
+      .filter(m => m.member_id === member.id)
       .reduce((acc, m) => acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0);
     
-    const totalExpenseAmount = expenses.reduce((acc, e) => acc + e.amount, 0);
+    const totalExpenseAmount = expenses.reduce((acc, e) => acc + parseFloat(e.amount), 0);
     const mealRate = totalMeals > 0 ? totalExpenseAmount / totalMeals : 0;
     
     return { totalMeals, userMeals, mealRate, totalExpenseAmount };
@@ -23,10 +67,16 @@ const Dashboard = ({ darkMode, t, members, meals, expenses, currentUser }) => {
 
   const calculateBalance = () => {
     const stats = calculateMealStats();
-    const userExpenses = expenses.filter(e => e.paid_by === currentUser?.id).reduce((acc, e) => acc + e.amount, 0);
+    const userExpenses = expenses
+      .filter(e => e.paid_by === member.id)
+      .reduce((acc, e) => acc + parseFloat(e.amount), 0);
     const userShare = stats.mealRate * stats.userMeals;
     return userExpenses - userShare;
   };
+
+  if (loading) {
+    return <div className="text-center py-12">{t.loading}</div>;
+  }
 
   const stats = calculateMealStats();
   const balance = calculateBalance();
@@ -106,7 +156,7 @@ const Dashboard = ({ darkMode, t, members, meals, expenses, currentUser }) => {
                     </p>
                   </div>
                 </div>
-                {item.amount && <span className="font-bold">৳{item.amount}</span>}
+                {item.amount && <span className="font-bold">৳{parseFloat(item.amount).toFixed(2)}</span>}
               </div>
             ))}
         </div>
