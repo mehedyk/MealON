@@ -1,23 +1,64 @@
 // ============================================
-// FILE: src/components/Expenses.jsx
+// FILE: src/components/Expenses.jsx - WITH SUPABASE
 // ============================================
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
-const Expenses = ({ darkMode, t, expenses, setExpenses, members }) => {
-  const handleAddExpense = (e) => {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    const newExpense = {
-      id: Date.now(),
-      description: formData.get('description'),
-      amount: parseFloat(formData.get('amount')),
-      category: formData.get('category'),
-      paid_by: parseInt(formData.get('paidBy')),
-      created_at: new Date().toISOString()
-    };
-    setExpenses([...expenses, newExpense]);
-    e.target.reset();
+const Expenses = ({ darkMode, t, mess, member }) => {
+  const [expenses, setExpenses] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    loadData();
+  }, [mess.id]);
+
+  const loadData = async () => {
+    try {
+      const [expensesRes, membersRes] = await Promise.all([
+        supabase.from('expenses').select('*').eq('mess_id', mess.id).order('created_at', { ascending: false }),
+        supabase.from('members').select('*').eq('mess_id', mess.id)
+      ]);
+
+      setExpenses(expensesRes.data || []);
+      setMembers(membersRes.data || []);
+    } catch (error) {
+      console.error('Error loading expenses:', error);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleAddExpense = async (e) => {
+    e.preventDefault();
+    setMessage('');
+    
+    const formData = new FormData(e.target);
+
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .insert([{
+          mess_id: mess.id,
+          paid_by: parseInt(formData.get('paidBy')),
+          description: formData.get('description'),
+          amount: parseFloat(formData.get('amount')),
+          category: formData.get('category'),
+          expense_date: new Date().toISOString().split('T')[0]
+        }]);
+
+      if (error) throw error;
+
+      setMessage(t.success + '!');
+      e.target.reset();
+      loadData();
+    } catch (error) {
+      setMessage('Error: ' + error.message);
+    }
+  };
+
+  if (loading) return <div className="text-center py-12">{t.loading}</div>;
 
   return (
     <div>
@@ -62,15 +103,21 @@ const Expenses = ({ darkMode, t, expenses, setExpenses, members }) => {
               <label className={`block mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{t.paidBy}</label>
               <select
                 name="paidBy"
+                defaultValue={member.id}
                 required
                 className={`w-full p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
               >
-                {members.map(member => (
-                  <option key={member.id} value={member.id}>{member.name}</option>
+                {members.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
                 ))}
               </select>
             </div>
           </div>
+          {message && (
+            <div className={`p-3 rounded-lg text-sm ${message.includes('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+              {message}
+            </div>
+          )}
           <button type="submit" className="w-full bg-green-500 text-white p-3 rounded-lg hover:bg-green-600 transition">
             {t.add}
           </button>
@@ -91,7 +138,7 @@ const Expenses = ({ darkMode, t, expenses, setExpenses, members }) => {
               </tr>
             </thead>
             <tbody>
-              {expenses.slice().reverse().map(expense => {
+              {expenses.map(expense => {
                 const payer = members.find(m => m.id === expense.paid_by);
                 return (
                   <tr key={expense.id} className={`border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
@@ -102,10 +149,10 @@ const Expenses = ({ darkMode, t, expenses, setExpenses, members }) => {
                         expense.category === 'utilities' ? 'bg-blue-100 text-blue-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        {expense.category === 'groceries' ? t.groceries : expense.category === 'utilities' ? t.utilities : t.misc}
+                        {t[expense.category] || expense.category}
                       </span>
                     </td>
-                    <td className="p-3 font-bold">৳{expense.amount.toFixed(2)}</td>
+                    <td className="p-3 font-bold">৳{parseFloat(expense.amount).toFixed(2)}</td>
                     <td className="p-3">{payer?.name}</td>
                     <td className="p-3 text-sm">{new Date(expense.created_at).toLocaleDateString()}</td>
                   </tr>
