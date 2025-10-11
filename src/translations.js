@@ -121,6 +121,9 @@ export const translations = {
     success: 'সফল',
     active: 'সক্রিয়',
     inactive: 'নিষ্ক্রিয়'
+
+    contact: 'যোগাযোগ', // Bengali
+    contact: 'Contact', // English
   },
   en: {
     appName: 'MealON',
@@ -241,5 +244,8 @@ export const translations = {
     success: 'Success',
     active: 'Active',
     inactive: 'Inactive'
+
+    contact: 'যোগাযোগ', // Bengali
+    contact: 'Contact', // English
   }
 };
