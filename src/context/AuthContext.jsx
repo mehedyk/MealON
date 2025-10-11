@@ -1,5 +1,5 @@
 // ============================================
-// FILE: src/context/AuthContext.jsx - FIXED
+// FILE: src/context/AuthContext.jsx - BETTER ERROR HANDLING
 // ============================================
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase } from '../lib/supabase';
@@ -22,40 +22,50 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    checkUser();
-    
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session?.user) {
+    let mounted = true;
+
+    const initAuth = async () => {
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('Session error:', sessionError);
+          if (mounted) setLoading(false);
+          return;
+        }
+
+        if (session?.user && mounted) {
           setUser(session.user);
           await loadMemberData(session.user.id);
-        } else {
+        }
+      } catch (err) {
+        console.error('Init auth error:', err);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    initAuth();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event);
+        if (session?.user && mounted) {
+          setUser(session.user);
+          await loadMemberData(session.user.id);
+        } else if (mounted) {
           setUser(null);
           setMember(null);
           setMess(null);
         }
-        setLoading(false);
       }
     );
 
     return () => {
+      mounted = false;
       authListener?.subscription?.unsubscribe();
     };
   }, []);
-
-  const checkUser = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        await loadMemberData(session.user.id);
-      }
-    } catch (err) {
-      console.error('Error checking user:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadMemberData = async (userId) => {
     try {
@@ -73,6 +83,9 @@ export const AuthProvider = ({ children }) => {
       if (memberData) {
         setMember(memberData);
         setMess(memberData.mess);
+      } else {
+        setMember(null);
+        setMess(null);
       }
     } catch (err) {
       console.error('Error loading member data:', err);
@@ -152,8 +165,9 @@ export const AuthProvider = ({ children }) => {
   const createMess = async (messName) => {
     try {
       setError(null);
+      console.log('Creating mess:', messName, 'for user:', user.id);
       
-      // Create mess WITHOUT RLS check
+      // Create mess
       const { data: messData, error: messError } = await supabase
         .from('mess')
         .insert([{ 
@@ -168,16 +182,18 @@ export const AuthProvider = ({ children }) => {
         throw messError;
       }
 
-      // Create member entry WITHOUT RLS check
+      console.log('Mess created:', messData);
+
+      // Create member entry
       const { data: memberData, error: memberError } = await supabase
         .from('members')
         .insert([{
           user_id: user.id,
           mess_id: messData.id,
-          name: user.user_metadata.name || 'User',
+          name: user.user_metadata?.name || user.email.split('@')[0],
           email: user.email,
-          phone: user.user_metadata.phone || '',
-          country_code: user.user_metadata.country_code || '+880',
+          phone: user.user_metadata?.phone || '',
+          country_code: user.user_metadata?.country_code || '+880',
           role: 'manager'
         }])
         .select()
@@ -190,14 +206,14 @@ export const AuthProvider = ({ children }) => {
         throw memberError;
       }
 
+      console.log('Member created:', memberData);
+
       setMess(messData);
       setMember(memberData);
       
-      // Reload to ensure proper state
-      await loadMemberData(user.id);
-      
       return { data: messData, error: null };
     } catch (err) {
+      console.error('Create mess error:', err);
       setError(err.message);
       return { data: null, error: err.message };
     }
@@ -231,7 +247,7 @@ export const AuthProvider = ({ children }) => {
         .insert([{
           mess_id: messData.id,
           invitee_email: user.email,
-          invitee_name: user.user_metadata.name || 'User',
+          invitee_name: user.user_metadata?.name || user.email.split('@')[0],
           invitation_type: 'join_request',
           status: 'pending'
         }])
