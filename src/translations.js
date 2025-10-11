@@ -1,5 +1,5 @@
 // ============================================
-// FILE: src/translations.js - UPDATED WITH NEW KEYS
+// FILE: src/translations.js - FIXED
 // ============================================
 export const translations = {
   bn: {
@@ -13,6 +13,7 @@ export const translations = {
     menu: 'মেনু',
     rules: 'নিয়মাবলী',
     voting: 'ভোটিং',
+    contact: 'যোগাযোগ',
     
     // Auth
     login: 'লগইন',
@@ -121,9 +122,6 @@ export const translations = {
     success: 'সফল',
     active: 'সক্রিয়',
     inactive: 'নিষ্ক্রিয়'
-
-    contact: 'যোগাযোগ', // Bengali
-    contact: 'Contact', // English
   },
   en: {
     appName: 'MealON',
@@ -136,6 +134,7 @@ export const translations = {
     menu: 'Menu',
     rules: 'Rules',
     voting: 'Voting',
+    contact: 'Contact',
     
     // Auth
     login: 'Login',
@@ -244,8 +243,5 @@ export const translations = {
     success: 'Success',
     active: 'Active',
     inactive: 'Inactive'
-
-    contact: 'যোগাযোগ', // Bengali
-    contact: 'Contact', // English
   }
 };
