@@ -1,5 +1,6 @@
 import React from 'react';
-import { TrendingUp, Users, Calendar, DollarSign, BookOpen, ClipboardList, Vote, FileText, Settings } from 'lucide-react';
+//import { TrendingUp, Users, Calendar, DollarSign, BookOpen, ClipboardList, Vote, FileText, Settings } from 'lucide-react';
+import { TrendingUp, Users, Calendar, DollarSign, BookOpen, ClipboardList, Vote, FileText, Settings, MessageSquare } from 'lucide-react';
 
 export default function Sidebar({ darkMode, sidebarOpen, currentPage, setCurrentPage, t }) {
   const items = [
