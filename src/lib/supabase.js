@@ -1,7 +1,6 @@
 // ============================================
-// FILE: src/lib/supabase.js
+// FILE: src/lib/supabase.js - CLEAN VERSION
 // ============================================
-
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
@@ -23,14 +22,6 @@ supabase.from('mess').select('count').limit(1).then(({ error }) => {
     console.log('✅ Supabase connected successfully');
   }
 });
-
-//new test for finding bug
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // Helper functions for database operations
 export const db = {
@@ -192,4 +183,3 @@ export const db = {
     return data
   }
 };
-
