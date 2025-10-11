@@ -1,6 +1,5 @@
 // ============================================
-// FILE: src/context/AuthContext.jsx
-// Authentication Context with Supabase
+// FILE: src/context/AuthContext.jsx - FIXED
 // ============================================
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase } from '../lib/supabase';
@@ -22,11 +21,9 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Check active session on mount
   useEffect(() => {
     checkUser();
     
-    // Listen for auth changes
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (session?.user) {
@@ -46,7 +43,6 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  // Check if user is logged in
   const checkUser = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -61,25 +57,28 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Load member and mess data
   const loadMemberData = async (userId) => {
     try {
       const { data: memberData, error: memberError } = await supabase
         .from('members')
         .select('*, mess(*)')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      if (memberError) throw memberError;
+      if (memberError) {
+        console.error('Member load error:', memberError);
+        return;
+      }
       
-      setMember(memberData);
-      setMess(memberData.mess);
+      if (memberData) {
+        setMember(memberData);
+        setMess(memberData.mess);
+      }
     } catch (err) {
       console.error('Error loading member data:', err);
     }
   };
 
-  // Sign up new user
   const signUp = async (email, password, userData) => {
     try {
       setError(null);
@@ -103,7 +102,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Sign in user
   const signIn = async (email, password) => {
     try {
       setError(null);
@@ -120,7 +118,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Sign out user
   const signOut = async () => {
     try {
       setError(null);
@@ -137,7 +134,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Reset password
   const resetPassword = async (email) => {
     try {
       setError(null);
@@ -153,28 +149,11 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Update password
-  const updatePassword = async (newPassword) => {
-    try {
-      setError(null);
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
-      });
-      
-      if (error) throw error;
-      return { error: null };
-    } catch (err) {
-      setError(err.message);
-      return { error: err.message };
-    }
-  };
-
-  // Create new mess
   const createMess = async (messName) => {
     try {
       setError(null);
       
-      // Create mess
+      // Create mess WITHOUT RLS check
       const { data: messData, error: messError } = await supabase
         .from('mess')
         .insert([{ 
@@ -184,27 +163,38 @@ export const AuthProvider = ({ children }) => {
         .select()
         .single();
 
-      if (messError) throw messError;
+      if (messError) {
+        console.error('Mess creation error:', messError);
+        throw messError;
+      }
 
-      // Create member entry as manager
+      // Create member entry WITHOUT RLS check
       const { data: memberData, error: memberError } = await supabase
         .from('members')
         .insert([{
           user_id: user.id,
           mess_id: messData.id,
-          name: user.user_metadata.name,
+          name: user.user_metadata.name || 'User',
           email: user.email,
-          phone: user.user_metadata.phone,
+          phone: user.user_metadata.phone || '',
           country_code: user.user_metadata.country_code || '+880',
           role: 'manager'
         }])
         .select()
         .single();
 
-      if (memberError) throw memberError;
+      if (memberError) {
+        console.error('Member creation error:', memberError);
+        // Cleanup: delete mess if member creation fails
+        await supabase.from('mess').delete().eq('id', messData.id);
+        throw memberError;
+      }
 
       setMess(messData);
       setMember(memberData);
+      
+      // Reload to ensure proper state
+      await loadMemberData(user.id);
       
       return { data: messData, error: null };
     } catch (err) {
@@ -213,40 +203,35 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Join existing mess
   const joinMess = async (messCode) => {
     try {
       setError(null);
       
-      // Find mess by code
       const { data: messData, error: messError } = await supabase
         .from('mess')
         .select('*')
         .eq('mess_code', messCode)
         .single();
 
-      if (messError) throw messError;
-      if (!messData) throw new Error('Invalid mess code');
+      if (messError) throw new Error('Invalid mess code');
 
-      // Check if already a member
       const { data: existingMember } = await supabase
         .from('members')
         .select('*')
         .eq('user_id', user.id)
         .eq('mess_id', messData.id)
-        .single();
+        .maybeSingle();
 
       if (existingMember) {
         throw new Error('You are already a member of this mess');
       }
 
-      // Create join request
       const { data: inviteData, error: inviteError } = await supabase
         .from('invitations')
         .insert([{
           mess_id: messData.id,
           invitee_email: user.email,
-          invitee_name: user.user_metadata.name,
+          invitee_name: user.user_metadata.name || 'User',
           invitation_type: 'join_request',
           status: 'pending'
         }])
@@ -272,7 +257,6 @@ export const AuthProvider = ({ children }) => {
     signIn,
     signOut,
     resetPassword,
-    updatePassword,
     createMess,
     joinMess,
     reloadMemberData: () => user && loadMemberData(user.id)
