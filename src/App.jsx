@@ -24,6 +24,7 @@ import Rules from './components/Rules';
 import Voting from './components/Voting';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
+import Contact from './components/Contact';
 
 const App = () => {
   const { user, member, mess, loading } = useAuth();
@@ -115,6 +116,8 @@ const App = () => {
         return <Reports {...props} />;
       case 'settings':
         return <Settings {...props} darkMode={darkMode} setDarkMode={setDarkMode} language={language} setLanguage={setLanguage} />;
+      case 'contact':
+        return <Contact {...props} />;
       default:
         return <Dashboard {...props} />;
     }
