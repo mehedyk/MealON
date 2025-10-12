@@ -1,5 +1,5 @@
 // ============================================
-// FILE: src/context/AuthContext.jsx - BETTER ERROR HANDLING
+// FILE: src/context/AuthContext.jsx - BETTER ERROR HANDLING002
 // ============================================
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase } from '../lib/supabase';
@@ -8,9 +8,7 @@ const AuthContext = createContext({});
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 };
 
@@ -26,13 +24,17 @@ export const AuthProvider = ({ children }) => {
 
     const initAuth = async () => {
       try {
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        // Set a timeout to prevent infinite loading
+        const timeoutId = setTimeout(() => {
+          if (mounted && loading) {
+            console.error('Auth initialization timeout');
+            setLoading(false);
+          }
+        }, 3000);
+
+        const { data: { session } } = await supabase.auth.getSession();
         
-        if (sessionError) {
-          console.error('Session error:', sessionError);
-          if (mounted) setLoading(false);
-          return;
-        }
+        clearTimeout(timeoutId);
 
         if (session?.user && mounted) {
           setUser(session.user);
@@ -49,7 +51,6 @@ export const AuthProvider = ({ children }) => {
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event);
         if (session?.user && mounted) {
           setUser(session.user);
           await loadMemberData(session.user.id);
@@ -69,26 +70,23 @@ export const AuthProvider = ({ children }) => {
 
   const loadMemberData = async (userId) => {
     try {
-      const { data: memberData, error: memberError } = await supabase
+      const { data, error } = await supabase
         .from('members')
         .select('*, mess(*)')
         .eq('user_id', userId)
         .maybeSingle();
 
-      if (memberError) {
-        console.error('Member load error:', memberError);
+      if (error) {
+        console.error('Member load error:', error);
         return;
       }
       
-      if (memberData) {
-        setMember(memberData);
-        setMess(memberData.mess);
-      } else {
-        setMember(null);
-        setMess(null);
+      if (data) {
+        setMember(data);
+        setMess(data.mess);
       }
     } catch (err) {
-      console.error('Error loading member data:', err);
+      console.error('Error loading member:', err);
     }
   };
 
@@ -150,10 +148,7 @@ export const AuthProvider = ({ children }) => {
   const resetPassword = async (email) => {
     try {
       setError(null);
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`
-      });
-      
+      const { error } = await supabase.auth.resetPasswordForEmail(email);
       if (error) throw error;
       return { error: null };
     } catch (err) {
@@ -165,9 +160,8 @@ export const AuthProvider = ({ children }) => {
   const createMess = async (messName) => {
     try {
       setError(null);
-      console.log('Creating mess:', messName, 'for user:', user.id);
       
-      // Create mess
+      // Step 1: Create mess
       const { data: messData, error: messError } = await supabase
         .from('mess')
         .insert([{ 
@@ -178,13 +172,13 @@ export const AuthProvider = ({ children }) => {
         .single();
 
       if (messError) {
-        console.error('Mess creation error:', messError);
-        throw messError;
+        console.error('Mess error:', messError);
+        throw new Error(messError.message);
       }
 
-      console.log('Mess created:', messData);
+      console.log('✅ Mess created:', messData);
 
-      // Create member entry
+      // Step 2: Create member
       const { data: memberData, error: memberError } = await supabase
         .from('members')
         .insert([{
@@ -200,20 +194,20 @@ export const AuthProvider = ({ children }) => {
         .single();
 
       if (memberError) {
-        console.error('Member creation error:', memberError);
-        // Cleanup: delete mess if member creation fails
+        console.error('Member error:', memberError);
+        // Cleanup
         await supabase.from('mess').delete().eq('id', messData.id);
-        throw memberError;
+        throw new Error(memberError.message);
       }
 
-      console.log('Member created:', memberData);
+      console.log('✅ Member created:', memberData);
 
       setMess(messData);
       setMember(memberData);
       
       return { data: messData, error: null };
     } catch (err) {
-      console.error('Create mess error:', err);
+      console.error('Create mess failed:', err);
       setError(err.message);
       return { data: null, error: err.message };
     }
@@ -230,17 +224,6 @@ export const AuthProvider = ({ children }) => {
         .single();
 
       if (messError) throw new Error('Invalid mess code');
-
-      const { data: existingMember } = await supabase
-        .from('members')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('mess_id', messData.id)
-        .maybeSingle();
-
-      if (existingMember) {
-        throw new Error('You are already a member of this mess');
-      }
 
       const { data: inviteData, error: inviteError } = await supabase
         .from('invitations')
