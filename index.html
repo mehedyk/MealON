@@ -14,5 +14,24 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+  // Clear service worker and cache
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      for(let registration of registrations) {
+        registration.unregister();
+      }
+    });
+  }
+  
+  // Clear all caches
+  if ('caches' in window) {
+    caches.keys().then(function(names) {
+      for (let name of names) {
+        caches.delete(name);
+      }
+    });
+  }
+</script>
   </body>
 </html>
