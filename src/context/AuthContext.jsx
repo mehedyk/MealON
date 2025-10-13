@@ -180,12 +180,20 @@ export const AuthProvider = ({ children }) => {
         p_mess_name: messName.trim(),
         p_user_id: user.id,
         p_name: memberName.trim(),
-        p_email: user.email,
-        p_phone: memberPhone,
-        p_country_code: memberCountryCode
+        p_email: user.email.trim(),
+        p_phone: memberPhone || '',  // Ensure it's never undefined
+        p_country_code: memberCountryCode || '+880'  // Ensure it's never undefined
       };
       
       console.log('📤 Sending to database:', params);
+      console.log('📤 Types check:', {
+        messName: typeof params.p_mess_name,
+        userId: typeof params.p_user_id,
+        name: typeof params.p_name,
+        email: typeof params.p_email,
+        phone: typeof params.p_phone,
+        countryCode: typeof params.p_country_code
+      });
       
       // Use the database function to create both mess and member atomically
       const { data, error } = await supabase.rpc('create_mess_with_member', params);
