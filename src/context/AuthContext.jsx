@@ -1,5 +1,5 @@
 // ============================================
-// FILE: src/context/AuthContext.jsx - BETTER ERROR HANDLING002
+// FILE: src/context/AuthContext.jsx - FIXED WITH DB FUNCTION
 // ============================================
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase } from '../lib/supabase';
@@ -161,53 +161,38 @@ export const AuthProvider = ({ children }) => {
     try {
       setError(null);
       
-      // Step 1: Create mess
-      const { data: messData, error: messError } = await supabase
-        .from('mess')
-        .insert([{ 
-          name: messName,
-          created_by: user.id 
-        }])
-        .select()
-        .single();
+      console.log('🔄 Creating mess with function...');
+      
+      // Use the database function to create both mess and member atomically
+      const { data, error } = await supabase.rpc('create_mess_with_member', {
+        p_mess_name: messName,
+        p_user_id: user.id,
+        p_name: user.user_metadata?.name || user.email.split('@')[0],
+        p_email: user.email,
+        p_phone: user.user_metadata?.phone || '',
+        p_country_code: user.user_metadata?.country_code || '+880'
+      });
 
-      if (messError) {
-        console.error('Mess error:', messError);
-        throw new Error(messError.message);
+      if (error) {
+        console.error('❌ RPC Error:', error);
+        throw new Error(error.message);
       }
 
-      console.log('✅ Mess created:', messData);
+      console.log('✅ Function returned:', data);
 
-      // Step 2: Create member
-      const { data: memberData, error: memberError } = await supabase
-        .from('members')
-        .insert([{
-          user_id: user.id,
-          mess_id: messData.id,
-          name: user.user_metadata?.name || user.email.split('@')[0],
-          email: user.email,
-          phone: user.user_metadata?.phone || '',
-          country_code: user.user_metadata?.country_code || '+880',
-          role: 'manager'
-        }])
-        .select()
-        .single();
+      // Extract mess and member from the returned JSON
+      const messData = data.mess;
+      const memberData = data.member;
 
-      if (memberError) {
-        console.error('Member error:', memberError);
-        // Cleanup
-        await supabase.from('mess').delete().eq('id', messData.id);
-        throw new Error(memberError.message);
-      }
-
-      console.log('✅ Member created:', memberData);
-
+      // Update state
       setMess(messData);
       setMember(memberData);
       
+      console.log('✅ Mess created successfully:', messData);
+      
       return { data: messData, error: null };
     } catch (err) {
-      console.error('Create mess failed:', err);
+      console.error('❌ Create mess failed:', err);
       setError(err.message);
       return { data: null, error: err.message };
     }
