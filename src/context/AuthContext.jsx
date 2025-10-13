@@ -157,20 +157,34 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const createMess = async (messName) => {
+  const createMess = async (messName, userName = null) => {
     try {
       setError(null);
       
-      console.log('🔄 Creating mess with function...');
+      // Get name from multiple sources with fallbacks
+      const memberName = userName || 
+                        user.user_metadata?.name || 
+                        user.email?.split('@')[0] || 
+                        'User';
+      
+      const memberPhone = user.user_metadata?.phone || '';
+      const memberCountryCode = user.user_metadata?.country_code || '+880';
+      
+      console.log('🔄 Creating mess with data:', {
+        messName,
+        memberName,
+        email: user.email,
+        phone: memberPhone
+      });
       
       // Use the database function to create both mess and member atomically
       const { data, error } = await supabase.rpc('create_mess_with_member', {
         p_mess_name: messName,
         p_user_id: user.id,
-        p_name: user.user_metadata?.name || user.email.split('@')[0],
+        p_name: memberName,
         p_email: user.email,
-        p_phone: user.user_metadata?.phone || '',
-        p_country_code: user.user_metadata?.country_code || '+880'
+        p_phone: memberPhone,
+        p_country_code: memberCountryCode
       });
 
       if (error) {
