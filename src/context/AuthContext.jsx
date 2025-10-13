@@ -170,22 +170,25 @@ export const AuthProvider = ({ children }) => {
       const memberPhone = user.user_metadata?.phone || '';
       const memberCountryCode = user.user_metadata?.country_code || '+880';
       
-      console.log('🔄 Creating mess with data:', {
-        messName,
-        memberName,
-        email: user.email,
-        phone: memberPhone
-      });
+      console.log('🔍 DEBUG - User object:', user);
+      console.log('🔍 DEBUG - User metadata:', user.user_metadata);
+      console.log('🔍 DEBUG - userName param:', userName);
+      console.log('🔍 DEBUG - Final memberName:', memberName);
+      console.log('🔍 DEBUG - Email:', user.email);
       
-      // Use the database function to create both mess and member atomically
-      const { data, error } = await supabase.rpc('create_mess_with_member', {
-        p_mess_name: messName,
+      const params = {
+        p_mess_name: messName.trim(),
         p_user_id: user.id,
-        p_name: memberName,
+        p_name: memberName.trim(),
         p_email: user.email,
         p_phone: memberPhone,
         p_country_code: memberCountryCode
-      });
+      };
+      
+      console.log('📤 Sending to database:', params);
+      
+      // Use the database function to create both mess and member atomically
+      const { data, error } = await supabase.rpc('create_mess_with_member', params);
 
       if (error) {
         console.error('❌ RPC Error:', error);
