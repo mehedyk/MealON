@@ -158,70 +158,73 @@ export const AuthProvider = ({ children }) => {
   };
 
   const createMess = async (messName, userName = null) => {
-    try {
-      setError(null);
-      
-      // Get name from multiple sources with fallbacks
-      const memberName = userName || 
-                        user.user_metadata?.name || 
-                        user.email?.split('@')[0] || 
-                        'User';
-      
-      const memberPhone = user.user_metadata?.phone || '';
-      const memberCountryCode = user.user_metadata?.country_code || '+880';
-      
-      console.log('🔍 DEBUG - User object:', user);
-      console.log('🔍 DEBUG - User metadata:', user.user_metadata);
-      console.log('🔍 DEBUG - userName param:', userName);
-      console.log('🔍 DEBUG - Final memberName:', memberName);
-      console.log('🔍 DEBUG - Email:', user.email);
-      
-      const params = {
-        p_mess_name: messName.trim(),
-        p_user_id: user.id,
-        p_name: memberName.trim(),
-        p_email: user.email.trim(),
-        p_phone: memberPhone || '',  // Ensure it's never undefined
-        p_country_code: memberCountryCode || '+880'  // Ensure it's never undefined
-      };
-      
-      console.log('📤 Sending to database:', params);
-      console.log('📤 Types check:', {
-        messName: typeof params.p_mess_name,
-        userId: typeof params.p_user_id,
-        name: typeof params.p_name,
-        email: typeof params.p_email,
-        phone: typeof params.p_phone,
-        countryCode: typeof params.p_country_code
-      });
-      
-      // Use the database function to create both mess and member atomically
-      const { data, error } = await supabase.rpc('create_mess_with_member', params);
-
-      if (error) {
-        console.error('❌ RPC Error:', error);
-        throw new Error(error.message);
-      }
-
-      console.log('✅ Function returned:', data);
-
-      // Extract mess and member from the returned JSON
-      const messData = data.mess;
-      const memberData = data.member;
-
-      // Update state
-      setMess(messData);
-      setMember(memberData);
-      
-      console.log('✅ Mess created successfully:', messData);
-      
-      return { data: messData, error: null };
-    } catch (err) {
-      console.error('❌ Create mess failed:', err);
-      setError(err.message);
-      return { data: null, error: err.message };
+  try {
+    setError(null);
+    
+    // Get name with fallbacks
+    const memberName = userName || 
+                      user.user_metadata?.name || 
+                      user.email?.split('@')[0] || 
+                      'User';
+    
+    const memberPhone = user.user_metadata?.phone || '';
+    const memberCountryCode = user.user_metadata?.country_code || '+880';
+    
+    console.log('🔍 DEBUG INFO:');
+    console.log('User:', user);
+    console.log('User ID:', user.id);
+    console.log('User ID type:', typeof user.id);
+    console.log('Mess name:', messName);
+    console.log('Member name:', memberName);
+    console.log('Email:', user.email);
+    
+    // Validate before sending
+    if (!user.id) {
+      throw new Error('User ID is missing');
     }
-  };
+    if (!messName || messName.trim() === '') {
+      throw new Error('Mess name is required');
+    }
+    if (!memberName || memberName.trim() === '') {
+      throw new Error('Member name is required');
+    }
+    
+    const params = {
+      p_mess_name: messName.trim(),
+      p_user_id: user.id,
+      p_name: memberName.trim(),
+      p_email: user.email.trim(),
+      p_phone: memberPhone,
+      p_country_code: memberCountryCode
+    };
+    
+    console.log('📤 Calling RPC with:', params);
+    
+    // Call the function
+    const { data, error } = await supabase.rpc('create_mess_with_member', params);
+
+    if (error) {
+      console.error('❌ RPC Error:', error);
+      throw new Error(error.message);
+    }
+
+    console.log('✅ RPC Success:', data);
+
+    // Extract mess and member
+    const messData = data.mess;
+    const memberData = data.member;
+
+    // Update state
+    setMess(messData);
+    setMember(memberData);
+    
+    return { data: messData, error: null };
+  } catch (err) {
+    console.error('❌ Create mess failed:', err);
+    setError(err.message);
+    return { data: null, error: err.message };
+  }
+};
 
   const joinMess = async (messCode) => {
     try {
