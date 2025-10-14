@@ -5,9 +5,11 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
 import { translations } from './translations';
 
+import DebugPanel from './components/DebugPanel';
 // Auth Components
 import AuthPage from './components/Auth/AuthPage';
 import MessSetup from './components/Auth/MessSetup';
+
 
 // Main Components
 import Header from './components/Header';
