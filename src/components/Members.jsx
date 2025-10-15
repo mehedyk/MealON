@@ -1,5 +1,6 @@
 // ============================================
-// FILE: src/components/Members.jsx
+// FILE: src/components/Members.jsx - COMPLETE FIXED VERSION
+// Replace your entire Members.jsx file with this code
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { Mail, UserPlus, Check, X, Crown, Shield } from 'lucide-react';
@@ -17,11 +18,14 @@ const Members = ({ darkMode, t, mess, member }) => {
 
   useEffect(() => {
     loadMembers();
-    loadInvitations();
+    if (isManager) {
+      loadInvitations();
+    }
   }, [mess.id]);
 
   const loadMembers = async () => {
     try {
+      console.log('📊 Loading members for mess:', mess.id);
       const { data, error } = await supabase
         .from('members')
         .select('*')
@@ -30,15 +34,15 @@ const Members = ({ darkMode, t, mess, member }) => {
 
       if (error) throw error;
       setMembers(data || []);
+      console.log('✅ Members loaded:', data?.length);
     } catch (error) {
-      console.error('Error loading members:', error);
+      console.error('❌ Error loading members:', error);
     }
   };
 
   const loadInvitations = async () => {
-    if (!isManager) return;
-    
     try {
+      console.log('📊 Loading invitations for mess:', mess.id);
       const { data, error } = await supabase
         .from('invitations')
         .select('*')
@@ -48,8 +52,9 @@ const Members = ({ darkMode, t, mess, member }) => {
 
       if (error) throw error;
       setInvitations(data || []);
+      console.log('✅ Invitations loaded:', data?.length);
     } catch (error) {
-      console.error('Error loading invitations:', error);
+      console.error('❌ Error loading invitations:', error);
     }
   };
 
@@ -60,6 +65,8 @@ const Members = ({ darkMode, t, mess, member }) => {
     setMessage('');
 
     try {
+      console.log('📤 Sending invitation to:', inviteEmail);
+      
       const { error } = await supabase
         .from('invitations')
         .insert([{
@@ -73,44 +80,81 @@ const Members = ({ darkMode, t, mess, member }) => {
 
       if (error) throw error;
 
-      setMessage(t.success + '! ' + (t.sendInvitation || 'Invitation sent!'));
+      console.log('✅ Invitation sent successfully');
+      setMessage(t.success + '! Invitation sent!');
       setInviteEmail('');
       setInviteName('');
       loadInvitations();
     } catch (error) {
+      console.error('❌ Error sending invitation:', error);
       setMessage('Error: ' + error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Approve Join Request
+  // Approve Join Request - FIXED VERSION
   const handleApproveRequest = async (invitation) => {
     try {
-      // Check if user exists in auth.users
-      const { data: userData, error: userError } = await supabase
-        .from('auth.users')
-        .select('id')
-        .eq('email', invitation.invitee_email)
-        .single();
+      console.log('🔍 Approving request for:', invitation.invitee_email);
 
-      if (userError) {
-        alert('User has not signed up yet. Please ask them to create an account first.');
+      // First, get user ID from auth.users table
+      const { data: { users }, error: searchError } = await supabase.auth.admin.listUsers();
+      
+      if (searchError) {
+        console.error('❌ Error searching users:', searchError);
+        setMessage('Error: Could not search for user. Please try again.');
+        return;
+      }
+
+      const foundUser = users.find(u => u.email === invitation.invitee_email);
+      
+      console.log('📊 User search result:', foundUser ? 'Found' : 'Not found');
+
+      if (!foundUser) {
+        setMessage('Error: User has not signed up yet. Ask them to create an account first.');
+        return;
+      }
+
+      console.log('✅ User found:', foundUser.id);
+
+      // Check if member already exists
+      const { data: existingMember } = await supabase
+        .from('members')
+        .select('id')
+        .eq('user_id', foundUser.id)
+        .eq('mess_id', mess.id)
+        .maybeSingle();
+
+      if (existingMember) {
+        console.log('⚠️ Member already exists');
+        setMessage('Error: This user is already a member!');
         return;
       }
 
       // Create member entry
-      const { error: memberError } = await supabase
+      const { data: newMember, error: memberError } = await supabase
         .from('members')
         .insert([{
-          user_id: userData.id,
+          user_id: foundUser.id,
           mess_id: mess.id,
           name: invitation.invitee_name || invitation.invitee_email.split('@')[0],
           email: invitation.invitee_email,
-          role: 'member'
-        }]);
+          role: 'member',
+          country_code: '+880'
+        }])
+        .select()
+        .single();
 
-      if (memberError) throw memberError;
+      console.log('📊 Member creation:', { newMember, memberError });
+
+      if (memberError) {
+        console.error('❌ Member creation error:', memberError);
+        setMessage('Error: ' + memberError.message);
+        return;
+      }
+
+      console.log('✅ Member created:', newMember.id);
 
       // Update invitation status
       const { error: updateError } = await supabase
@@ -118,29 +162,41 @@ const Members = ({ darkMode, t, mess, member }) => {
         .update({ status: 'accepted' })
         .eq('id', invitation.id);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('❌ Invitation update error:', updateError);
+      } else {
+        console.log('✅ Invitation marked as accepted');
+      }
 
+      console.log('🎉 Member approved successfully!');
+      setMessage(t.success + '! Member approved.');
+      
       loadMembers();
       loadInvitations();
-      setMessage(t.success + '! Member approved.');
     } catch (error) {
-      alert('Error: ' + error.message);
+      console.error('❌ Approval error:', error);
+      setMessage('Error: ' + error.message);
     }
   };
 
   // Reject Join Request
   const handleRejectRequest = async (invitationId) => {
     try {
+      console.log('❌ Rejecting invitation:', invitationId);
+      
       const { error } = await supabase
         .from('invitations')
         .update({ status: 'rejected' })
         .eq('id', invitationId);
 
       if (error) throw error;
-      loadInvitations();
+      
+      console.log('✅ Invitation rejected');
       setMessage('Request rejected.');
+      loadInvitations();
     } catch (error) {
-      alert('Error: ' + error.message);
+      console.error('❌ Error rejecting:', error);
+      setMessage('Error: ' + error.message);
     }
   };
 
@@ -149,16 +205,21 @@ const Members = ({ darkMode, t, mess, member }) => {
     if (!isManager) return;
     
     try {
+      console.log('🔄 Changing role for member:', memberId, 'to', newRole);
+      
       const { error } = await supabase
         .from('members')
         .update({ role: newRole })
         .eq('id', memberId);
 
       if (error) throw error;
-      loadMembers();
+      
+      console.log('✅ Role updated');
       setMessage(t.success + '! Role updated.');
+      loadMembers();
     } catch (error) {
-      alert('Error: ' + error.message);
+      console.error('❌ Error changing role:', error);
+      setMessage('Error: ' + error.message);
     }
   };
 
@@ -281,7 +342,6 @@ const Members = ({ darkMode, t, mess, member }) => {
                   </p>
                 )}
                 
-                {/* Role Badge */}
                 <span className={`inline-block mt-3 px-3 py-1 text-xs rounded-full ${
                   memberItem.role === 'manager' 
                     ? 'bg-yellow-500 text-white' 
