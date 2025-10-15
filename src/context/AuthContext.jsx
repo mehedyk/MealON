@@ -1,6 +1,5 @@
 // ============================================
-// FILE: src/context/AuthContext.jsx - FIXED VERSION
-// Better state management and error handling
+// FILE: src/context/AuthContext.jsx - COMPLETE FIXED VERSION
 // ============================================
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase } from '../lib/supabase';
@@ -20,36 +19,53 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Load member data with better error handling
+  // Load member data with separate queries (more reliable)
   const loadMemberData = async (userId) => {
     try {
       console.log('🔄 Loading member data for user:', userId);
       
-      const { data, error } = await supabase
+      // Query members table
+      const { data: memberData, error: memberError } = await supabase
         .from('members')
-        .select(`
-          *,
-          mess (*)
-        `)
+        .select('*')
         .eq('user_id', userId)
         .maybeSingle();
 
-      if (error) {
-        console.error('❌ Error loading member:', error);
-        // Don't throw - user might not have a mess yet
+      console.log('📊 Member query result:', { memberData, memberError });
+
+      if (memberError) {
+        console.error('❌ Member query error:', memberError);
         setMember(null);
         setMess(null);
         return;
       }
       
-      if (data) {
-        console.log('✅ Member data loaded:', data);
-        setMember(data);
-        setMess(data.mess);
-      } else {
-        console.log('⚠️ No member data found');
+      if (!memberData) {
+        console.log('⚠️ No member found for user:', userId);
         setMember(null);
         setMess(null);
+        return;
+      }
+
+      console.log('✅ Member found:', memberData);
+      setMember(memberData);
+
+      // Get the mess separately
+      if (memberData.mess_id) {
+        const { data: messData, error: messError } = await supabase
+          .from('mess')
+          .select('*')
+          .eq('id', memberData.mess_id)
+          .single();
+
+        console.log('📊 Mess query result:', { messData, messError });
+
+        if (messError) {
+          console.error('❌ Mess query error:', messError);
+        } else if (messData) {
+          console.log('✅ Mess loaded:', messData);
+          setMess(messData);
+        }
       }
     } catch (err) {
       console.error('❌ Unexpected error loading member:', err);
@@ -67,7 +83,6 @@ export const AuthProvider = ({ children }) => {
       try {
         console.log('🚀 Initializing auth...');
         
-        // Get current session
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
@@ -93,7 +108,6 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
-    // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('🔔 Auth event:', event);
@@ -113,7 +127,6 @@ export const AuthProvider = ({ children }) => {
           console.log('🔄 Token refreshed');
           if (session?.user) {
             setUser(session.user);
-            // Reload member data on token refresh
             await loadMemberData(session.user.id);
           }
         }
@@ -123,7 +136,6 @@ export const AuthProvider = ({ children }) => {
     authSubscription = subscription;
     initAuth();
 
-    // Cleanup
     return () => {
       mounted = false;
       if (authSubscription) {
@@ -166,8 +178,6 @@ export const AuthProvider = ({ children }) => {
       });
       
       if (error) throw error;
-      
-      // Auth state listener will handle loading member data
       return { data, error: null };
     } catch (err) {
       setError(err.message);
@@ -184,12 +194,9 @@ export const AuthProvider = ({ children }) => {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       
-      // Clear state immediately
       setUser(null);
       setMember(null);
       setMess(null);
-      
-      // Clear localStorage
       localStorage.clear();
       
       console.log('✅ Signed out successfully');
@@ -223,7 +230,23 @@ export const AuthProvider = ({ children }) => {
         throw new Error('User not authenticated');
       }
 
-      // Get name with fallbacks
+      // CHECK IF USER ALREADY HAS A MESS
+      console.log('🔍 Checking if user already has a mess...');
+      
+      const { data: existingMember, error: checkError } = await supabase
+        .from('members')
+        .select('id, mess_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      console.log('📊 Existing member check:', { existingMember, checkError });
+
+      if (existingMember) {
+        console.log('⚠️ User already has a mess! Reloading...');
+        await loadMemberData(user.id);
+        throw new Error('You already have a mess! Page will reload.');
+      }
+
       const memberName = userName || 
                         user.user_metadata?.name || 
                         user.email?.split('@')[0] || 
@@ -237,7 +260,6 @@ export const AuthProvider = ({ children }) => {
       console.log('Member name:', memberName);
       console.log('User ID:', user.id);
       
-      // Validate inputs
       if (!messName || messName.trim() === '') {
         throw new Error('Mess name is required');
       }
@@ -254,9 +276,8 @@ export const AuthProvider = ({ children }) => {
         p_country_code: memberCountryCode
       };
       
-      console.log('📤 Calling RPC...');
+      console.log('📤 Calling RPC with params:', params);
       
-      // Call the database function
       const { data, error } = await supabase.rpc('create_mess_with_member', params);
 
       if (error) {
@@ -266,15 +287,13 @@ export const AuthProvider = ({ children }) => {
 
       console.log('✅ RPC Success:', data);
 
-      // Extract mess and member from response
       const messData = data.mess;
       const memberData = data.member;
 
-      // Update state immediately
       setMess(messData);
       setMember(memberData);
       
-      console.log('✅ State updated with new mess');
+      console.log('✅ State updated - mess created successfully!');
       
       return { data: messData, error: null };
     } catch (err) {
@@ -293,20 +312,55 @@ export const AuthProvider = ({ children }) => {
         throw new Error('User not authenticated');
       }
 
-      console.log('🔍 Looking for mess with code:', messCode);
-      
+      console.log('🔍 Attempting to join mess with code:', messCode);
+
+      // Check if user already has a mess
+      const { data: existingMember, error: existingError } = await supabase
+        .from('members')
+        .select('id, mess_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (existingError) {
+        console.error('Error checking existing membership:', existingError);
+      }
+
+      if (existingMember) {
+        throw new Error('You are already a member of a mess!');
+      }
+
+      // Find mess by code
       const { data: messData, error: messError } = await supabase
         .from('mess')
         .select('*')
         .eq('mess_code', messCode.trim())
         .single();
 
+      console.log('📊 Mess lookup result:', { messData, messError });
+
       if (messError || !messData) {
-        throw new Error('Invalid mess code');
+        throw new Error('Invalid mess code - no mess found');
       }
 
       console.log('✅ Mess found:', messData.name);
 
+      // Check if invitation already exists
+      const { data: existingInvite } = await supabase
+        .from('invitations')
+        .select('id, status')
+        .eq('mess_id', messData.id)
+        .eq('invitee_email', user.email)
+        .maybeSingle();
+
+      if (existingInvite) {
+        if (existingInvite.status === 'pending') {
+          throw new Error('You already have a pending request for this mess!');
+        } else if (existingInvite.status === 'rejected') {
+          throw new Error('Your previous request was rejected.');
+        }
+      }
+
+      // Create join request
       const { data: inviteData, error: inviteError } = await supabase
         .from('invitations')
         .insert([{
@@ -319,9 +373,14 @@ export const AuthProvider = ({ children }) => {
         .select()
         .single();
 
-      if (inviteError) throw inviteError;
+      console.log('📊 Invitation result:', { inviteData, inviteError });
 
-      console.log('✅ Join request sent');
+      if (inviteError) {
+        console.error('❌ Failed to create invitation:', inviteError);
+        throw new Error('Failed to send join request: ' + inviteError.message);
+      }
+
+      console.log('✅ Join request sent successfully');
       return { data: inviteData, error: null };
     } catch (err) {
       console.error('❌ Join mess error:', err);
