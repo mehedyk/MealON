@@ -1,5 +1,5 @@
 // ============================================
-// FILE: src/components/Voting.jsx - WITH SUPABASE
+// 6. src/components/Voting.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { Check } from 'lucide-react';
