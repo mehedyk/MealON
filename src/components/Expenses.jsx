@@ -1,5 +1,5 @@
 // ============================================
-// FILE: src/components/Expenses.jsx - WITH SUPABASE
+// 3. src/components/Expenses.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
