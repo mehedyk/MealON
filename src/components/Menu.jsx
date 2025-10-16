@@ -1,5 +1,5 @@
-// ============================================
-// FILE: src/components/Menu.jsx - WITH SUPABASE
+/ ============================================
+// 4. src/components/Menu.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
@@ -72,22 +72,6 @@ const Menu = ({ darkMode, t, mess, member }) => {
               type="text"
               name="dishName"
               placeholder={t.dishName}
-              required
-              className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
-            />
-            <select
-              name="mealType"
-              required
-              className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
-            >
-              <option value="breakfast">{t.breakfast}</option>
-              <option value="lunch">{t.lunch}</option>
-              <option value="dinner">{t.dinner}</option>
-            </select>
-            <input
-              type="date"
-              name="menuDate"
-              defaultValue={today}
               required
               className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
             />
