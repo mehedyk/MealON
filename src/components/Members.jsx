@@ -94,91 +94,106 @@ const Members = ({ darkMode, t, mess, member }) => {
   };
 
   // Approve Join Request - FIXED VERSION
-  const handleApproveRequest = async (invitation) => {
-    try {
-      console.log('🔍 Approving request for:', invitation.invitee_email);
 
-      // First, get user ID from auth.users table
-      const { data: { users }, error: searchError } = await supabase.auth.admin.listUsers();
+// This version doesn't use admin API - works with regular auth
+const handleApproveRequest = async (invitation) => {
+  try {
+    console.log('🔍 Approving request for:', invitation.invitee_email);
+
+    // Method 1: Try to get user from a public RPC function
+    // First, let's check if the user exists by trying to find their member record if they signed up
+    
+    // Create a temporary function to check if user exists
+    const { data: userData, error: userError } = await supabase.rpc('get_user_by_email', {
+      email_param: invitation.invitee_email
+    });
+
+    console.log('📊 User lookup:', { userData, userError });
+
+    // If RPC doesn't exist, try alternate method
+    if (userError && userError.message.includes('function')) {
+      console.log('⚠️ RPC function not found, using alternate method');
       
-      if (searchError) {
-        console.error('❌ Error searching users:', searchError);
-        setMessage('Error: Could not search for user. Please try again.');
-        return;
-      }
-
-      const foundUser = users.find(u => u.email === invitation.invitee_email);
+      // Alternate: Just create the member and let them link on next login
+      // This is a workaround - the user must have signed up first
       
-      console.log('📊 User search result:', foundUser ? 'Found' : 'Not found');
+      setMessage('Please ask the user to sign up first, then try approving again.');
+      return;
+    }
 
-      if (!foundUser) {
-        setMessage('Error: User has not signed up yet. Ask them to create an account first.');
-        return;
-      }
+    if (!userData || !userData.user_id) {
+      setMessage('Error: User has not signed up yet. Ask them to create an account first.');
+      return;
+    }
 
-      console.log('✅ User found:', foundUser.id);
+    console.log('✅ User found:', userData.user_id);
 
-      // Check if member already exists
-      const { data: existingMember } = await supabase
-        .from('members')
-        .select('id')
-        .eq('user_id', foundUser.id)
-        .eq('mess_id', mess.id)
-        .maybeSingle();
+    // Check if member already exists
+    const { data: existingMember } = await supabase
+      .from('members')
+      .select('id')
+      .eq('user_id', userData.user_id)
+      .eq('mess_id', mess.id)
+      .maybeSingle();
 
-      if (existingMember) {
-        console.log('⚠️ Member already exists');
-        setMessage('Error: This user is already a member!');
-        return;
-      }
-
-      // Create member entry
-      const { data: newMember, error: memberError } = await supabase
-        .from('members')
-        .insert([{
-          user_id: foundUser.id,
-          mess_id: mess.id,
-          name: invitation.invitee_name || invitation.invitee_email.split('@')[0],
-          email: invitation.invitee_email,
-          role: 'member',
-          country_code: '+880'
-        }])
-        .select()
-        .single();
-
-      console.log('📊 Member creation:', { newMember, memberError });
-
-      if (memberError) {
-        console.error('❌ Member creation error:', memberError);
-        setMessage('Error: ' + memberError.message);
-        return;
-      }
-
-      console.log('✅ Member created:', newMember.id);
-
-      // Update invitation status
-      const { error: updateError } = await supabase
+    if (existingMember) {
+      console.log('⚠️ Member already exists');
+      setMessage('Error: This user is already a member!');
+      
+      // Update invitation status anyway
+      await supabase
         .from('invitations')
         .update({ status: 'accepted' })
         .eq('id', invitation.id);
-
-      if (updateError) {
-        console.error('❌ Invitation update error:', updateError);
-      } else {
-        console.log('✅ Invitation marked as accepted');
-      }
-
-      console.log('🎉 Member approved successfully!');
-      setMessage(t.success + '! Member approved.');
       
-      loadMembers();
       loadInvitations();
-    } catch (error) {
-      console.error('❌ Approval error:', error);
-      setMessage('Error: ' + error.message);
+      return;
     }
-  };
 
+    // Create member entry
+    const { data: newMember, error: memberError } = await supabase
+      .from('members')
+      .insert([{
+        user_id: userData.user_id,
+        mess_id: mess.id,
+        name: invitation.invitee_name || invitation.invitee_email.split('@')[0],
+        email: invitation.invitee_email,
+        role: 'member',
+        country_code: '+880'
+      }])
+      .select()
+      .single();
+
+    console.log('📊 Member creation:', { newMember, memberError });
+
+    if (memberError) {
+      console.error('❌ Member creation error:', memberError);
+      setMessage('Error: ' + memberError.message);
+      return;
+    }
+
+    console.log('✅ Member created:', newMember.id);
+
+    // Update invitation status
+    const { error: updateError } = await supabase
+      .from('invitations')
+      .update({ status: 'accepted' })
+      .eq('id', invitation.id);
+
+    if (updateError) {
+      console.error('❌ Invitation update error:', updateError);
+    }
+
+    console.log('🎉 Member approved successfully!');
+    setMessage(t.success + '! Member approved.');
+    
+    loadMembers();
+    loadInvitations();
+  } catch (error) {
+    console.error('❌ Approval error:', error);
+    setMessage('Error: ' + error.message);
+  }
+};
   // Reject Join Request
   const handleRejectRequest = async (invitationId) => {
     try {
