@@ -1,5 +1,5 @@
 // ============================================
-// FILE: src/components/Meals.jsx - WITH SUPABASE
+// 2. src/components/Meals.jsx  
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { Bell, Calendar as CalendarIcon } from 'lucide-react';
