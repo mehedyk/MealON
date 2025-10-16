@@ -1,5 +1,5 @@
 // ============================================
-// FILE: src/components/Reports.jsx
+// 7. src/components/Reports.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { Download } from 'lucide-react';
@@ -47,7 +47,6 @@ const Reports = ({ darkMode, t, mess, member }) => {
 
   const stats = calculateMealStats();
 
-  // PDF Export Function
   const exportToPDF = async () => {
     try {
       const { jsPDF } = await import('jspdf');
@@ -56,7 +55,6 @@ const Reports = ({ darkMode, t, mess, member }) => {
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.width;
       
-      // Title
       doc.setFontSize(20);
       doc.setFont(undefined, 'bold');
       doc.text(mess.name, pageWidth / 2, 15, { align: 'center' });
@@ -66,7 +64,6 @@ const Reports = ({ darkMode, t, mess, member }) => {
       doc.text('Monthly Report', pageWidth / 2, 22, { align: 'center' });
       doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth / 2, 28, { align: 'center' });
       
-      // Summary Stats
       doc.setFontSize(14);
       doc.setFont(undefined, 'bold');
       doc.text('Summary', 14, 40);
@@ -78,7 +75,6 @@ const Reports = ({ darkMode, t, mess, member }) => {
       doc.text(`Total Expenses: ৳${stats.totalExpenseAmount.toFixed(2)}`, 14, 60);
       doc.text(`Meal Rate: ৳${stats.mealRate.toFixed(2)}`, 14, 66);
       
-      // Member-wise Table
       const tableData = members.map(member => {
         const memberMeals = meals
           .filter(m => m.member_id === member.id)
@@ -107,22 +103,18 @@ const Reports = ({ darkMode, t, mess, member }) => {
         headStyles: { fillColor: [59, 130, 246], textColor: 255 }
       });
       
-      // Mess Code
       const finalY = doc.lastAutoTable.finalY + 10;
       doc.setFontSize(10);
       doc.text(`Mess Code: ${mess.mess_code}`, 14, finalY);
       
-      // Save
       doc.save(`${mess.name}_Report_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (error) {
       console.error('PDF export error:', error);
-      alert('Error exporting PDF. Please try again.');
+      alert('Error exporting PDF');
     }
   };
 
-  if (loading) {
-    return <div className="text-center py-12">{t.loading}</div>;
-  }
+  if (loading) return <div className="text-center py-12">{t.loading}</div>;
 
   return (
     <div>
