@@ -1,5 +1,5 @@
 // ============================================
-// FILE: src/components/Rules.jsx - WITH SUPABASE
+// 5. src/components/Rules.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
