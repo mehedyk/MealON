@@ -1,5 +1,6 @@
 // ============================================
-// FILE: src/components/Auth/MessSetup.jsx - FIXED
+// FILE: src/components/Auth/MessSetup.jsx - ENHANCED VERSION
+// Optional: This adds better error handling and prevents duplicate submissions
 // ============================================
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
@@ -7,11 +8,10 @@ import { Moon, Sun, Globe } from 'lucide-react';
 
 const MessSetup = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
   const { user, createMess, joinMess, signOut } = useAuth();
-  const [mode, setMode] = useState('create'); // 'create' or 'join'
+  const [mode, setMode] = useState('create');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
-  // Form states
   const [messName, setMessName] = useState('');
   const [userName, setUserName] = useState(user?.user_metadata?.name || '');
   const [messCode, setMessCode] = useState('');
@@ -19,7 +19,6 @@ const MessSetup = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
   const handleCreateMess = async (e) => {
     e.preventDefault();
     
-    // Validation
     if (!messName.trim()) {
       setMessage({ type: 'error', text: t.error + ': Mess name is required' });
       return;
@@ -33,7 +32,7 @@ const MessSetup = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
     setLoading(true);
     setMessage({ type: '', text: '' });
 
-    console.log('📝 Form data:', { messName, userName });
+    console.log('📝 Creating mess:', { messName, userName });
 
     try {
       const { data, error } = await createMess(messName.trim(), userName.trim());
@@ -41,12 +40,12 @@ const MessSetup = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
       if (error) {
         setMessage({ type: 'error', text: error });
       } else {
-        setMessage({ type: 'success', text: t.success + '! Mess created successfully!' });
+        setMessage({ type: 'success', text: t.success + '! Redirecting...' });
         console.log('✅ Mess created:', data);
-        // Context will handle the redirect automatically
+        // AuthContext will handle redirect automatically
       }
     } catch (err) {
-      console.error('Create mess error:', err);
+      console.error('❌ Create mess error:', err);
       setMessage({ type: 'error', text: err.message || 'Failed to create mess' });
     } finally {
       setLoading(false);
@@ -64,15 +63,21 @@ const MessSetup = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
     setLoading(true);
     setMessage({ type: '', text: '' });
 
+    console.log('🔍 Joining mess with code:', messCode);
+
     try {
-      const { data, error } = await joinMess(messCode);
+      const { data, error } = await joinMess(messCode.trim());
       
       if (error) {
         setMessage({ type: 'error', text: error });
       } else {
         setMessage({ type: 'success', text: t.joinRequestSent });
+        console.log('✅ Join request sent');
+        // Clear the form
+        setMessCode('');
       }
     } catch (err) {
+      console.error('❌ Join mess error:', err);
       setMessage({ type: 'error', text: err.message || 'Failed to join mess' });
     } finally {
       setLoading(false);
@@ -118,7 +123,10 @@ const MessSetup = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
         {/* Mode Toggle */}
         <div className="flex gap-2 mb-6">
           <button
-            onClick={() => setMode('create')}
+            onClick={() => {
+              setMode('create');
+              setMessage({ type: '', text: '' });
+            }}
             className={`flex-1 py-3 rounded-lg font-semibold transition ${
               mode === 'create'
                 ? 'bg-blue-600 text-white'
@@ -130,7 +138,10 @@ const MessSetup = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
             {t.createMess}
           </button>
           <button
-            onClick={() => setMode('join')}
+            onClick={() => {
+              setMode('join');
+              setMessage({ type: '', text: '' });
+            }}
             className={`flex-1 py-3 rounded-lg font-semibold transition ${
               mode === 'join'
                 ? 'bg-blue-600 text-white'
@@ -169,11 +180,12 @@ const MessSetup = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
                 onChange={(e) => setUserName(e.target.value)}
                 placeholder={language === 'bn' ? 'আপনার নাম লিখুন' : 'Enter your name'}
                 required
+                disabled={loading}
                 className={`w-full px-4 py-3 rounded-lg border ${
                   darkMode
                     ? 'bg-slate-700 border-slate-600 text-white placeholder-slate-400'
                     : 'bg-white border-gray-300 text-gray-800 placeholder-gray-400'
-                } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                } focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50`}
               />
             </div>
 
@@ -187,11 +199,12 @@ const MessSetup = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
                 onChange={(e) => setMessName(e.target.value)}
                 placeholder={language === 'bn' ? 'মেসের নাম লিখুন' : 'Enter mess name'}
                 required
+                disabled={loading}
                 className={`w-full px-4 py-3 rounded-lg border ${
                   darkMode
                     ? 'bg-slate-700 border-slate-600 text-white placeholder-slate-400'
                     : 'bg-white border-gray-300 text-gray-800 placeholder-gray-400'
-                } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                } focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50`}
               />
             </div>
 
@@ -219,11 +232,12 @@ const MessSetup = ({ darkMode, setDarkMode, language, setLanguage, t }) => {
                 placeholder="123456"
                 maxLength={6}
                 required
+                disabled={loading}
                 className={`w-full px-4 py-3 rounded-lg border text-center text-2xl tracking-widest ${
                   darkMode
                     ? 'bg-slate-700 border-slate-600 text-white placeholder-slate-400'
                     : 'bg-white border-gray-300 text-gray-800 placeholder-gray-400'
-                } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                } focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50`}
               />
               <p className={`mt-2 text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                 {t.messCodeInfo}
