@@ -1,6 +1,5 @@
 // ============================================
-// FILE: src/components/Dashboard.jsx - IMPROVED
-// Better loading states and error handling
+// 1. src/components/Dashboard.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { DollarSign, Calendar, TrendingUp, Users } from 'lucide-react';
@@ -17,7 +16,6 @@ const Dashboard = ({ darkMode, t, mess, member }) => {
     if (mess?.id && member?.id) {
       loadData();
       
-      // Subscribe to realtime updates
       const mealsSubscription = supabase
         .channel('meals_changes')
         .on('postgres_changes', { 
@@ -47,7 +45,7 @@ const Dashboard = ({ darkMode, t, mess, member }) => {
 
   const loadData = async () => {
     if (!mess?.id) {
-      setError('No mess data available');
+      setError('No mess data');
       setLoading(false);
       return;
     }
@@ -120,7 +118,7 @@ const Dashboard = ({ darkMode, t, mess, member }) => {
     return (
       <div className="text-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-        <p className={darkMode ? 'text-gray-400' : 'text-gray-600'}>{t.loading}</p>
+        <p>{t.loading}</p>
       </div>
     );
   }
@@ -128,18 +126,10 @@ const Dashboard = ({ darkMode, t, mess, member }) => {
   if (error) {
     return (
       <div className="text-center py-12">
-        <div className={`p-6 rounded-xl ${darkMode ? 'bg-red-900' : 'bg-red-100'}`}>
-          <p className={`text-lg font-semibold ${darkMode ? 'text-red-200' : 'text-red-800'}`}>
-            Error loading dashboard
-          </p>
-          <p className={`mt-2 ${darkMode ? 'text-red-300' : 'text-red-600'}`}>{error}</p>
-          <button 
-            onClick={loadData}
-            className="mt-4 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
-          >
-            Retry
-          </button>
-        </div>
+        <p className="text-red-500">{error}</p>
+        <button onClick={loadData} className="mt-4 px-6 py-2 bg-blue-500 text-white rounded-lg">
+          Retry
+        </button>
       </div>
     );
   }
@@ -226,9 +216,7 @@ const Dashboard = ({ darkMode, t, mess, member }) => {
               </div>
             ))}
           {meals.length === 0 && expenses.length === 0 && (
-            <p className={`text-center py-8 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              No activities yet. Start by logging meals or adding expenses!
-            </p>
+            <p className="text-center py-8 text-gray-500">No activities yet</p>
           )}
         </div>
       </div>
