@@ -1,5 +1,6 @@
 // ============================================
-// FILE: src/context/AuthContext.jsx - COMPLETE FIXED VERSION
+// REDESIGNED AuthContext - Works with new backend
+// Replace your src/context/AuthContext.jsx with this
 // ============================================
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase } from '../lib/supabase';
@@ -19,12 +20,10 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Load member data with separate queries (more reliable)
   const loadMemberData = async (userId) => {
     try {
       console.log('🔄 Loading member data for user:', userId);
       
-      // Query members table
       const { data: memberData, error: memberError } = await supabase
         .from('members')
         .select('*')
@@ -41,7 +40,7 @@ export const AuthProvider = ({ children }) => {
       }
       
       if (!memberData) {
-        console.log('⚠️ No member found for user:', userId);
+        console.log('⚠️ No member found for user');
         setMember(null);
         setMess(null);
         return;
@@ -50,15 +49,12 @@ export const AuthProvider = ({ children }) => {
       console.log('✅ Member found:', memberData);
       setMember(memberData);
 
-      // Get the mess separately
       if (memberData.mess_id) {
         const { data: messData, error: messError } = await supabase
           .from('mess')
           .select('*')
           .eq('id', memberData.mess_id)
           .single();
-
-        console.log('📊 Mess query result:', { messData, messError });
 
         if (messError) {
           console.error('❌ Mess query error:', messError);
@@ -74,7 +70,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Initialize auth and set up listener
   useEffect(() => {
     let mounted = true;
     let authSubscription = null;
@@ -123,12 +118,10 @@ export const AuthProvider = ({ children }) => {
           setUser(null);
           setMember(null);
           setMess(null);
-        } else if (event === 'TOKEN_REFRESHED') {
+        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
           console.log('🔄 Token refreshed');
-          if (session?.user) {
-            setUser(session.user);
-            await loadMemberData(session.user.id);
-          }
+          setUser(session.user);
+          await loadMemberData(session.user.id);
         }
       }
     );
@@ -144,7 +137,6 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  // Sign up
   const signUp = async (email, password, userData) => {
     try {
       setError(null);
@@ -168,7 +160,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Sign in
   const signIn = async (email, password) => {
     try {
       setError(null);
@@ -185,7 +176,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Sign out
   const signOut = async () => {
     try {
       setError(null);
@@ -208,7 +198,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Reset password
   const resetPassword = async (email) => {
     try {
       setError(null);
@@ -221,7 +210,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Create mess
   const createMess = async (messName, userName = null) => {
     try {
       setError(null);
@@ -230,21 +218,18 @@ export const AuthProvider = ({ children }) => {
         throw new Error('User not authenticated');
       }
 
-      // CHECK IF USER ALREADY HAS A MESS
       console.log('🔍 Checking if user already has a mess...');
       
-      const { data: existingMember, error: checkError } = await supabase
+      const { data: existingMember } = await supabase
         .from('members')
         .select('id, mess_id')
         .eq('user_id', user.id)
         .maybeSingle();
 
-      console.log('📊 Existing member check:', { existingMember, checkError });
-
       if (existingMember) {
         console.log('⚠️ User already has a mess! Reloading...');
         await loadMemberData(user.id);
-        throw new Error('You already have a mess! Page will reload.');
+        throw new Error('You already have a mess!');
       }
 
       const memberName = userName || 
@@ -256,9 +241,6 @@ export const AuthProvider = ({ children }) => {
       const memberCountryCode = user.user_metadata?.country_code || '+880';
       
       console.log('📝 Creating mess...');
-      console.log('Mess name:', messName);
-      console.log('Member name:', memberName);
-      console.log('User ID:', user.id);
       
       if (!messName || messName.trim() === '') {
         throw new Error('Mess name is required');
@@ -276,7 +258,7 @@ export const AuthProvider = ({ children }) => {
         p_country_code: memberCountryCode
       };
       
-      console.log('📤 Calling RPC with params:', params);
+      console.log('📤 Calling RPC...');
       
       const { data, error } = await supabase.rpc('create_mess_with_member', params);
 
@@ -293,7 +275,7 @@ export const AuthProvider = ({ children }) => {
       setMess(messData);
       setMember(memberData);
       
-      console.log('✅ State updated - mess created successfully!');
+      console.log('✅ State updated - mess created!');
       
       return { data: messData, error: null };
     } catch (err) {
@@ -303,7 +285,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Join mess
+  // NEW: Simplified join mess using the new function
   const joinMess = async (messCode) => {
     try {
       setError(null);
@@ -312,76 +294,24 @@ export const AuthProvider = ({ children }) => {
         throw new Error('User not authenticated');
       }
 
-      console.log('🔍 Attempting to join mess with code:', messCode);
+      console.log('🔍 Joining mess with code:', messCode);
 
-      // Check if user already has a mess
-      const { data: existingMember, error: existingError } = await supabase
-        .from('members')
-        .select('id, mess_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      const userName = user.user_metadata?.name || user.email.split('@')[0];
 
-      if (existingError) {
-        console.error('Error checking existing membership:', existingError);
+      const { data, error } = await supabase.rpc('join_mess_with_code', {
+        p_mess_code: messCode.trim(),
+        p_user_id: user.id,
+        p_user_email: user.email,
+        p_user_name: userName
+      });
+
+      if (error) {
+        console.error('❌ Join error:', error);
+        throw new Error(error.message);
       }
 
-      if (existingMember) {
-        throw new Error('You are already a member of a mess!');
-      }
-
-      // Find mess by code
-      const { data: messData, error: messError } = await supabase
-        .from('mess')
-        .select('*')
-        .eq('mess_code', messCode.trim())
-        .single();
-
-      console.log('📊 Mess lookup result:', { messData, messError });
-
-      if (messError || !messData) {
-        throw new Error('Invalid mess code - no mess found');
-      }
-
-      console.log('✅ Mess found:', messData.name);
-
-      // Check if invitation already exists
-      const { data: existingInvite } = await supabase
-        .from('invitations')
-        .select('id, status')
-        .eq('mess_id', messData.id)
-        .eq('invitee_email', user.email)
-        .maybeSingle();
-
-      if (existingInvite) {
-        if (existingInvite.status === 'pending') {
-          throw new Error('You already have a pending request for this mess!');
-        } else if (existingInvite.status === 'rejected') {
-          throw new Error('Your previous request was rejected.');
-        }
-      }
-
-      // Create join request
-      const { data: inviteData, error: inviteError } = await supabase
-        .from('invitations')
-        .insert([{
-          mess_id: messData.id,
-          invitee_email: user.email,
-          invitee_name: user.user_metadata?.name || user.email.split('@')[0],
-          invitation_type: 'join_request',
-          status: 'pending'
-        }])
-        .select()
-        .single();
-
-      console.log('📊 Invitation result:', { inviteData, inviteError });
-
-      if (inviteError) {
-        console.error('❌ Failed to create invitation:', inviteError);
-        throw new Error('Failed to send join request: ' + inviteError.message);
-      }
-
-      console.log('✅ Join request sent successfully');
-      return { data: inviteData, error: null };
+      console.log('✅ Join request sent:', data);
+      return { data, error: null };
     } catch (err) {
       console.error('❌ Join mess error:', err);
       setError(err.message);
@@ -389,7 +319,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Manual reload function
   const reloadMemberData = async () => {
     if (user) {
       console.log('🔄 Manually reloading member data...');
