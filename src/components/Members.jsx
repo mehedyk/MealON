@@ -1,9 +1,8 @@
 // ============================================
 // FILE: src/components/Members.jsx - COMPLETE FIXED VERSION
-// Replace your entire Members.jsx file with this code
 // ============================================
 import React, { useState, useEffect } from 'react';
-import { Mail, UserPlus, Check, X, Crown, Shield } from 'lucide-react';
+import { Mail, UserPlus, Check, X, Crown, Shield, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const Members = ({ darkMode, t, mess, member }) => {
@@ -21,11 +20,29 @@ const Members = ({ darkMode, t, mess, member }) => {
     if (isManager) {
       loadInvitations();
     }
+    
+    // Set up realtime subscription for members
+    const membersChannel = supabase
+      .channel('members_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'members',
+        filter: `mess_id=eq.${mess.id}`
+      }, () => {
+        console.log('🔔 Members changed, reloading...');
+        loadMembers();
+      })
+      .subscribe();
+
+    return () => {
+      membersChannel.unsubscribe();
+    };
   }, [mess.id]);
 
   const loadMembers = async () => {
     try {
-      console.log('📊 Loading members for mess:', mess.id);
+      console.log('📊 Loading members...');
       const { data, error } = await supabase
         .from('members')
         .select('*')
@@ -42,12 +59,12 @@ const Members = ({ darkMode, t, mess, member }) => {
 
   const loadInvitations = async () => {
     try {
-      console.log('📊 Loading invitations for mess:', mess.id);
+      console.log('📊 Loading invitations...');
       const { data, error } = await supabase
         .from('invitations')
         .select('*')
         .eq('mess_id', mess.id)
-        .eq('status', 'pending')
+        .in('status', ['pending', 'approved_pending_signup'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -58,143 +75,74 @@ const Members = ({ darkMode, t, mess, member }) => {
     }
   };
 
-  // Send Email Invitation
   const handleSendInvitation = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage('');
 
     try {
-      console.log('📤 Sending invitation to:', inviteEmail);
+      console.log('📤 Sending invitation...');
       
       const { error } = await supabase
         .from('invitations')
         .insert([{
           mess_id: mess.id,
           inviter_id: member.id,
-          invitee_email: inviteEmail,
-          invitee_name: inviteName,
+          invitee_email: inviteEmail.trim().toLowerCase(),
+          invitee_name: inviteName.trim(),
           invitation_type: 'email_invite',
           status: 'pending'
         }]);
 
       if (error) throw error;
 
-      console.log('✅ Invitation sent successfully');
-      setMessage(t.success + '! Invitation sent!');
+      console.log('✅ Invitation sent');
+      setMessage('Invitation sent! They will be added when they sign up.');
       setInviteEmail('');
       setInviteName('');
       loadInvitations();
     } catch (error) {
-      console.error('❌ Error sending invitation:', error);
-      setMessage('Error: ' + error.message);
+      console.error('❌ Error:', error);
+      if (error.code === '23505') {
+        setMessage('Error: This user already has a pending invitation!');
+      } else {
+        setMessage('Error: ' + error.message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // Approve Join Request - FIXED VERSION
+  const handleApproveRequest = async (invitation) => {
+    try {
+      console.log('🔍 Approving:', invitation.invitee_email);
+      setMessage('');
 
-// This version doesn't use admin API - works with regular auth
-const handleApproveRequest = async (invitation) => {
-  try {
-    console.log('🔍 Approving request for:', invitation.invitee_email);
+      const { data, error } = await supabase.rpc('approve_join_request', {
+        p_invitation_id: invitation.id,
+        p_approver_id: member.id
+      });
 
-    // Method 1: Try to get user from a public RPC function
-    // First, let's check if the user exists by trying to find their member record if they signed up
-    
-    // Create a temporary function to check if user exists
-    const { data: userData, error: userError } = await supabase.rpc('get_user_by_email', {
-      email_param: invitation.invitee_email
-    });
+      if (error) {
+        console.error('❌ Approve error:', error);
+        throw error;
+      }
 
-    console.log('📊 User lookup:', { userData, userError });
+      console.log('📊 Approval result:', data);
 
-    // If RPC doesn't exist, try alternate method
-    if (userError && userError.message.includes('function')) {
-      console.log('⚠️ RPC function not found, using alternate method');
-      
-      // Alternate: Just create the member and let them link on next login
-      // This is a workaround - the user must have signed up first
-      
-      setMessage('Please ask the user to sign up first, then try approving again.');
-      return;
+      if (data.success) {
+        setMessage('✅ Member approved successfully!');
+        loadMembers();
+        loadInvitations();
+      } else {
+        setMessage('⚠️ ' + data.message);
+      }
+    } catch (error) {
+      console.error('❌ Approval error:', error);
+      setMessage('Error: ' + error.message);
     }
+  };
 
-    if (!userData || !userData.user_id) {
-      setMessage('Error: User has not signed up yet. Ask them to create an account first.');
-      return;
-    }
-
-    console.log('✅ User found:', userData.user_id);
-
-    // Check if member already exists
-    const { data: existingMember } = await supabase
-      .from('members')
-      .select('id')
-      .eq('user_id', userData.user_id)
-      .eq('mess_id', mess.id)
-      .maybeSingle();
-
-    if (existingMember) {
-      console.log('⚠️ Member already exists');
-      setMessage('Error: This user is already a member!');
-      
-      // Update invitation status anyway
-      await supabase
-        .from('invitations')
-        .update({ status: 'accepted' })
-        .eq('id', invitation.id);
-      
-      loadInvitations();
-      return;
-    }
-
-    // Create member entry
-    const { data: newMember, error: memberError } = await supabase
-      .from('members')
-      .insert([{
-        user_id: userData.user_id,
-        mess_id: mess.id,
-        name: invitation.invitee_name || invitation.invitee_email.split('@')[0],
-        email: invitation.invitee_email,
-        role: 'member',
-        country_code: '+880'
-      }])
-      .select()
-      .single();
-
-    console.log('📊 Member creation:', { newMember, memberError });
-
-    if (memberError) {
-      console.error('❌ Member creation error:', memberError);
-      setMessage('Error: ' + memberError.message);
-      return;
-    }
-
-    console.log('✅ Member created:', newMember.id);
-
-    // Update invitation status
-    const { error: updateError } = await supabase
-      .from('invitations')
-      .update({ status: 'accepted' })
-      .eq('id', invitation.id);
-
-    if (updateError) {
-      console.error('❌ Invitation update error:', updateError);
-    }
-
-    console.log('🎉 Member approved successfully!');
-    setMessage(t.success + '! Member approved.');
-    
-    loadMembers();
-    loadInvitations();
-  } catch (error) {
-    console.error('❌ Approval error:', error);
-    setMessage('Error: ' + error.message);
-  }
-};
-  // Reject Join Request
   const handleRejectRequest = async (invitationId) => {
     try {
       console.log('❌ Rejecting invitation:', invitationId);
@@ -206,21 +154,20 @@ const handleApproveRequest = async (invitation) => {
 
       if (error) throw error;
       
-      console.log('✅ Invitation rejected');
+      console.log('✅ Rejected');
       setMessage('Request rejected.');
       loadInvitations();
     } catch (error) {
-      console.error('❌ Error rejecting:', error);
+      console.error('❌ Error:', error);
       setMessage('Error: ' + error.message);
     }
   };
 
-  // Change Member Role
   const handleChangeRole = async (memberId, newRole) => {
     if (!isManager) return;
     
     try {
-      console.log('🔄 Changing role for member:', memberId, 'to', newRole);
+      console.log('🔄 Changing role...');
       
       const { error } = await supabase
         .from('members')
@@ -230,10 +177,10 @@ const handleApproveRequest = async (invitation) => {
       if (error) throw error;
       
       console.log('✅ Role updated');
-      setMessage(t.success + '! Role updated.');
+      setMessage('Role updated successfully!');
       loadMembers();
     } catch (error) {
-      console.error('❌ Error changing role:', error);
+      console.error('❌ Error:', error);
       setMessage('Error: ' + error.message);
     }
   };
@@ -242,27 +189,51 @@ const handleApproveRequest = async (invitation) => {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold">{t.members}</h2>
-        <div className={`px-4 py-2 rounded-lg ${darkMode ? 'bg-blue-900' : 'bg-blue-100'}`}>
-          <p className={`text-sm ${darkMode ? 'text-blue-200' : 'text-blue-800'}`}>
-            {t.messCode}: <span className="font-bold text-lg">{mess.mess_code}</span>
-          </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              loadMembers();
+              loadInvitations();
+            }}
+            className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition`}
+            title="Refresh"
+          >
+            <RefreshCw className="w-5 h-5" />
+          </button>
+          <div className={`px-4 py-2 rounded-lg ${darkMode ? 'bg-blue-900' : 'bg-blue-100'}`}>
+            <p className={`text-sm ${darkMode ? 'text-blue-200' : 'text-blue-800'}`}>
+              {t.messCode}: <span className="font-bold text-lg">{mess.mess_code}</span>
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Invitation Form - Manager Only */}
+      {message && (
+        <div className={`mb-4 p-4 rounded-lg ${
+          message.includes('Error') || message.includes('⚠️')
+            ? 'bg-red-100 text-red-700 border border-red-300'
+            : 'bg-green-100 text-green-700 border border-green-300'
+        }`}>
+          {message}
+        </div>
+      )}
+
       {isManager && (
         <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg mb-6`}>
           <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Mail className="w-5 h-5" />
             {t.inviteMembers || 'Invite Members'}
           </h3>
+          <p className={`text-sm mb-4 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            💡 Invited users will be automatically added when they sign up with this email.
+          </p>
           <form onSubmit={handleSendInvitation} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <input
                 type="text"
                 value={inviteName}
                 onChange={(e) => setInviteName(e.target.value)}
-                placeholder={t.memberName}
+                placeholder="Name"
                 required
                 className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
               />
@@ -270,7 +241,7 @@ const handleApproveRequest = async (invitation) => {
                 type="email"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder={t.email}
+                placeholder="Email"
                 required
                 className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
               />
@@ -280,22 +251,16 @@ const handleApproveRequest = async (invitation) => {
                 className="bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 transition disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 <UserPlus className="w-5 h-5" />
-                {loading ? t.loading : t.sendInvitation}
+                {loading ? 'Sending...' : 'Send Invite'}
               </button>
             </div>
           </form>
-          {message && (
-            <div className={`mt-3 p-3 rounded-lg text-sm ${message.includes('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-              {message}
-            </div>
-          )}
         </div>
       )}
 
-      {/* Pending Requests - Manager Only */}
       {isManager && invitations.length > 0 && (
         <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg mb-6`}>
-          <h3 className="text-xl font-bold mb-4">{t.pendingRequests || 'Pending Requests'}</h3>
+          <h3 className="text-xl font-bold mb-4">Pending Requests</h3>
           <div className="space-y-3">
             {invitations.map(invitation => (
               <div
@@ -303,26 +268,39 @@ const handleApproveRequest = async (invitation) => {
                 className={`p-4 rounded-lg flex items-center justify-between ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}
               >
                 <div>
-                  <p className="font-bold">{invitation.invitee_name || invitation.invitee_email}</p>
+                  <p className="font-bold">{invitation.invitee_name}</p>
                   <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                     {invitation.invitee_email}
                   </p>
-                  <p className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-500'} mt-1`}>
-                    {invitation.invitation_type === 'join_request' ? 'Join Request' : 'Email Invite'}
-                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      invitation.status === 'approved_pending_signup'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}>
+                      {invitation.status === 'approved_pending_signup' 
+                        ? '⏳ Approved - Waiting for signup'
+                        : invitation.invitation_type === 'join_request' 
+                        ? '📬 Join Request' 
+                        : '📧 Email Invite'}
+                    </span>
+                    <span className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                      {new Date(invitation.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleApproveRequest(invitation)}
                     className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition"
-                    title={t.approve}
+                    title="Approve"
                   >
                     <Check className="w-5 h-5" />
                   </button>
                   <button
                     onClick={() => handleRejectRequest(invitation.id)}
                     className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
-                    title={t.reject}
+                    title="Reject"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -333,7 +311,6 @@ const handleApproveRequest = async (invitation) => {
         </div>
       )}
 
-      {/* Members List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {members.map(memberItem => (
           <div key={memberItem.id} className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
@@ -342,10 +319,10 @@ const handleApproveRequest = async (invitation) => {
                 <div className="flex items-center gap-2 mb-2">
                   <h3 className="text-lg font-bold">{memberItem.name}</h3>
                   {memberItem.role === 'manager' && (
-                    <Crown className="w-5 h-5 text-yellow-500" title={t.messManager} />
+                    <Crown className="w-5 h-5 text-yellow-500" title="Manager" />
                   )}
                   {memberItem.role === 'second_in_command' && (
-                    <Shield className="w-5 h-5 text-blue-500" title={t.secondInCommand} />
+                    <Shield className="w-5 h-5 text-blue-500" title="Second-in-Command" />
                   )}
                 </div>
                 <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -365,15 +342,14 @@ const handleApproveRequest = async (invitation) => {
                     : 'bg-gray-500 text-white'
                 }`}>
                   {memberItem.role === 'manager' 
-                    ? t.messManager 
+                    ? 'Manager' 
                     : memberItem.role === 'second_in_command' 
-                    ? t.secondInCommand 
-                    : t.member}
+                    ? 'Second-in-Command' 
+                    : 'Member'}
                 </span>
               </div>
             </div>
 
-            {/* Change Role - Manager Only */}
             {isManager && memberItem.id !== member.id && (
               <div className="mt-4 pt-4 border-t border-gray-600">
                 <label className={`block text-xs mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -384,10 +360,10 @@ const handleApproveRequest = async (invitation) => {
                   onChange={(e) => handleChangeRole(memberItem.id, e.target.value)}
                   className={`w-full p-2 rounded-lg border text-sm ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
                 >
-                  <option value="member">{t.member}</option>
-                  <option value="second_in_command">{t.secondInCommand}</option>
+                  <option value="member">Member</option>
+                  <option value="second_in_command">Second-in-Command</option>
                   {member.role === 'manager' && (
-                    <option value="manager">{t.messManager}</option>
+                    <option value="manager">Manager</option>
                   )}
                 </select>
               </div>
@@ -395,6 +371,14 @@ const handleApproveRequest = async (invitation) => {
           </div>
         ))}
       </div>
+
+      {members.length === 0 && (
+        <div className={`text-center py-12 ${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl`}>
+          <p className={`text-lg ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            No members yet. Invite someone to get started!
+          </p>
+        </div>
+      )}
     </div>
   );
 };
