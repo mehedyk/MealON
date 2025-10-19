@@ -1,7 +1,7 @@
 // ============================================
-// FIXED AuthContext - Handles duplicate members and loading issues
+// FIXED AuthContext - Handles session timeout & prevents loading loops
 // ============================================
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext({});
@@ -18,61 +18,27 @@ export const AuthProvider = ({ children }) => {
   const [mess, setMess] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
 
-  const loadMemberData = async (userId) => {
+  // Memoized function to prevent re-renders
+  const loadMemberData = useCallback(async (userId) => {
+    if (!userId) {
+      setMember(null);
+      setMess(null);
+      return;
+    }
+
     try {
       console.log('🔄 Loading member data for:', userId);
       
-      // Use .single() instead of .maybeSingle() and handle errors properly
       const { data: memberData, error: memberError } = await supabase
         .from('members')
         .select('*')
         .eq('user_id', userId)
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      // Handle "multiple rows" error specifically
-      if (memberError) {
-        if (memberError.code === 'PGRST116') {
-          // Multiple rows found - get first one
-          console.warn('⚠️ Multiple members found, using first one');
-          const { data: allMembers, error: multiError } = await supabase
-            .from('members')
-            .select('*')
-            .eq('user_id', userId)
-            .limit(1);
-          
-          if (!multiError && allMembers && allMembers.length > 0) {
-            const firstMember = allMembers[0];
-            console.log('✅ Using member:', firstMember.name);
-            setMember(firstMember);
-            
-            // Load mess data
-            if (firstMember.mess_id) {
-              const { data: messData, error: messError } = await supabase
-                .from('mess')
-                .select('*')
-                .eq('id', firstMember.mess_id)
-                .single();
-
-              if (!messError && messData) {
-                console.log('✅ Mess loaded:', messData.name);
-                setMess(messData);
-              }
-            }
-            return;
-          }
-        }
-        
-        // No member found
-        if (memberError.code === 'PGRST116' || memberError.message?.includes('no rows')) {
-          console.log('⚠️ No member found');
-          setMember(null);
-          setMess(null);
-          return;
-        }
-        
-        // Other error
+      if (memberError && memberError.code !== 'PGRST116') {
         console.error('❌ Member error:', memberError);
         setMember(null);
         setMess(null);
@@ -80,7 +46,7 @@ export const AuthProvider = ({ children }) => {
       }
       
       if (!memberData) {
-        console.log('⚠️ No member found');
+        console.log('⚠️ No member found - user needs to create/join mess');
         setMember(null);
         setMess(null);
         return;
@@ -89,7 +55,6 @@ export const AuthProvider = ({ children }) => {
       console.log('✅ Member found:', memberData.name);
       setMember(memberData);
 
-      // Load mess data
       if (memberData.mess_id) {
         const { data: messData, error: messError } = await supabase
           .from('mess')
@@ -100,8 +65,6 @@ export const AuthProvider = ({ children }) => {
         if (!messError && messData) {
           console.log('✅ Mess loaded:', messData.name);
           setMess(messData);
-        } else if (messError) {
-          console.error('❌ Mess error:', messError);
         }
       }
     } catch (err) {
@@ -109,49 +72,70 @@ export const AuthProvider = ({ children }) => {
       setMember(null);
       setMess(null);
     }
-  };
+  }, []);
 
+  // Check session on mount and visibility change
   useEffect(() => {
     let mounted = true;
-    let loadingTimeout;
+    let visibilityTimeout;
 
-    const initAuth = async () => {
+    const checkSession = async () => {
       try {
-        console.log('🚀 Initializing auth...');
+        console.log('🔍 Checking session...');
         
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
           console.error('❌ Session error:', sessionError);
-          if (mounted) setLoading(false);
+          if (mounted) {
+            setUser(null);
+            setMember(null);
+            setMess(null);
+            setLoading(false);
+            setSessionChecked(true);
+          }
           return;
         }
 
         if (session?.user && mounted) {
-          console.log('✅ Session found:', session.user.email);
+          console.log('✅ Valid session:', session.user.email);
           setUser(session.user);
           await loadMemberData(session.user.id);
         } else {
           console.log('⚠️ No active session');
+          if (mounted) {
+            setUser(null);
+            setMember(null);
+            setMess(null);
+          }
         }
       } catch (err) {
-        console.error('❌ Init auth error:', err);
+        console.error('❌ Session check error:', err);
       } finally {
         if (mounted) {
           setLoading(false);
-          console.log('✅ Auth initialization complete');
+          setSessionChecked(true);
         }
       }
     };
 
-    // Set timeout for loading
-    loadingTimeout = setTimeout(() => {
-      if (loading && mounted) {
-        console.warn('⏰ Loading timeout - forcing completion');
-        setLoading(false);
-      }
-    }, 10000); // 10 seconds max
+    // Initial check
+    checkSession();
 
+    // Handle visibility change (tab switching, coming back)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('👁️ Tab visible - refreshing session');
+        clearTimeout(visibilityTimeout);
+        visibilityTimeout = setTimeout(() => {
+          checkSession();
+        }, 500);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('🔔 Auth event:', event);
@@ -169,25 +153,33 @@ export const AuthProvider = ({ children }) => {
           setUser(null);
           setMember(null);
           setMess(null);
-        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          localStorage.clear();
+        } else if (event === 'TOKEN_REFRESHED') {
           console.log('🔄 Token refreshed');
-          setUser(session.user);
+          if (session?.user) {
+            setUser(session.user);
+          }
+        } else if (event === 'USER_UPDATED') {
+          console.log('📝 User updated');
+          if (session?.user) {
+            setUser(session.user);
+          }
         }
       }
     );
 
-    initAuth();
-
     return () => {
       mounted = false;
-      clearTimeout(loadingTimeout);
+      clearTimeout(visibilityTimeout);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [loadMemberData]);
 
   const signUp = async (email, password, userData) => {
     try {
       setError(null);
+      setLoading(true);
       console.log('📝 Signing up:', email);
       
       const { data, error } = await supabase.auth.signUp({
@@ -210,12 +202,15 @@ export const AuthProvider = ({ children }) => {
       console.error('❌ Signup error:', err);
       setError(err.message);
       return { data: null, error: err.message };
+    } finally {
+      setLoading(false);
     }
   };
 
   const signIn = async (email, password) => {
     try {
       setError(null);
+      setLoading(true);
       console.log('🔐 Signing in:', email);
       
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -231,28 +226,49 @@ export const AuthProvider = ({ children }) => {
       console.error('❌ Login error:', err);
       setError(err.message);
       return { data: null, error: err.message };
+    } finally {
+      setLoading(false);
     }
   };
 
   const signOut = async () => {
     try {
       setError(null);
+      setLoading(true);
       console.log('👋 Signing out...');
       
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
+      // Clear state immediately
       setUser(null);
       setMember(null);
       setMess(null);
       localStorage.clear();
+      sessionStorage.clear();
+      
+      // Then sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Sign out error:', error);
+        // Don't throw - we already cleared local state
+      }
       
       console.log('✅ Signed out successfully');
+      
+      // Force reload to clear any cached state
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 100);
+      
       return { error: null };
     } catch (err) {
       console.error('❌ Sign out error:', err);
-      setError(err.message);
+      // Still clear local state even if sign out fails
+      setUser(null);
+      setMember(null);
+      setMess(null);
+      localStorage.clear();
       return { error: err.message };
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -278,16 +294,13 @@ export const AuthProvider = ({ children }) => {
 
       console.log('🔍 Checking if user already has a mess...');
       
-      // Check for existing member
-      const { data: existingMembers, error: checkError } = await supabase
+      const { data: existingMembers } = await supabase
         .from('members')
         .select('id, mess_id')
         .eq('user_id', user.id)
         .limit(1);
 
-      if (checkError) {
-        console.error('❌ Check error:', checkError);
-      } else if (existingMembers && existingMembers.length > 0) {
+      if (existingMembers && existingMembers.length > 0) {
         console.log('⚠️ User already has a mess! Reloading...');
         await loadMemberData(user.id);
         throw new Error('You already have a mess!');
@@ -298,9 +311,6 @@ export const AuthProvider = ({ children }) => {
                         user.email?.split('@')[0] || 
                         'User';
       
-      const memberPhone = user.user_metadata?.phone || '';
-      const memberCountryCode = user.user_metadata?.country_code || '+880';
-      
       console.log('📝 Creating mess:', messName);
       
       const params = {
@@ -308,8 +318,8 @@ export const AuthProvider = ({ children }) => {
         p_user_id: user.id,
         p_name: memberName.trim(),
         p_email: user.email.trim(),
-        p_phone: memberPhone,
-        p_country_code: memberCountryCode
+        p_phone: user.user_metadata?.phone || '',
+        p_country_code: user.user_metadata?.country_code || '+880'
       };
       
       const { data, error } = await supabase.rpc('create_mess_with_member', params);
@@ -358,7 +368,6 @@ export const AuthProvider = ({ children }) => {
 
       console.log('✅ Join response:', data);
       
-      // If already member, reload data
       if (data.already_member) {
         await loadMemberData(user.id);
       }
@@ -371,14 +380,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const reloadMemberData = async () => {
+  const reloadMemberData = useCallback(async () => {
     if (user) {
       console.log('🔄 Manually reloading member data...');
       setLoading(true);
       await loadMemberData(user.id);
       setLoading(false);
     }
-  };
+  }, [user, loadMemberData]);
 
   const value = {
     user,
@@ -386,6 +395,7 @@ export const AuthProvider = ({ children }) => {
     mess,
     loading,
     error,
+    sessionChecked,
     signUp,
     signIn,
     signOut,
