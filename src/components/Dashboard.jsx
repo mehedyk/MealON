@@ -94,69 +94,113 @@ const Dashboard = ({ darkMode, t, mess, member }) => {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
         <p>{t.loading}</p>
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-red-500 mb-4">{error}</p>
+        <button onClick={loadData} className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const stats = calculateMealStats();
+  const balance = calculateBalance();
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold">{t.dashboard}</h2>
+        <button onClick={loadData} className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}>
+          <RefreshCw className="w-5 h-5" />
+        </button>
+      </div>
       
-      <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg mb-6`}>
-        <h3 className="text-xl font-bold mb-4">{t.addMenuItem}</h3>
-        <form onSubmit={handleAddMenuItem} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <input
-              type="text"
-              name="dishName"
-              placeholder={t.dishName}
-              required
-              className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
-            />
-            <select
-              name="mealType"
-              required
-              className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
-            >
-              <option value="breakfast">{t.breakfast}</option>
-              <option value="lunch">{t.lunch}</option>
-              <option value="dinner">{t.dinner}</option>
-            </select>
-            <input
-              type="date"
-              name="menuDate"
-              defaultValue={today}
-              required
-              className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
-            />
-          </div>
-          {message && (
-            <div className={`p-3 rounded-lg text-sm ${message.includes('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-              {message}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{t.totalExpenses}</p>
+              <p className="text-2xl font-bold mt-1">৳{stats.totalExpenseAmount.toFixed(2)}</p>
             </div>
-          )}
-          <button type="submit" className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition">
-            {t.add}
-          </button>
-        </form>
+            <DollarSign className="w-12 h-12 text-red-500 opacity-20" />
+          </div>
+        </div>
+
+        <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{t.mealsThisMonth}</p>
+              <p className="text-2xl font-bold mt-1">{stats.userMeals}</p>
+            </div>
+            <Calendar className="w-12 h-12 text-green-500 opacity-20" />
+          </div>
+        </div>
+
+        <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{t.mealRate}</p>
+              <p className="text-2xl font-bold mt-1">৳{stats.mealRate.toFixed(2)}</p>
+            </div>
+            <TrendingUp className="w-12 h-12 text-blue-500 opacity-20" />
+          </div>
+        </div>
+
+        <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{t.yourBalance}</p>
+              <p className={`text-2xl font-bold mt-1 ${balance > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                ৳{Math.abs(balance).toFixed(2)}
+              </p>
+              <p className="text-xs mt-1">{balance > 0 ? t.youAreOwed : t.youOwe}</p>
+            </div>
+            <Users className="w-12 h-12 text-purple-500 opacity-20" />
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {['breakfast', 'lunch', 'dinner'].map(mealType => (
-          <div key={mealType} className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
-            <h3 className="text-lg font-bold mb-4 capitalize">
-              {t[mealType]}
-            </h3>
-            <div className="space-y-2">
-              {menuItems
-                .filter(item => item.meal_type === mealType && item.menu_date === today)
-                .map(item => (
-                  <div key={item.id} className={`p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                    <p className="font-medium">{item.dish}</p>
+      <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+        <h3 className="text-xl font-bold mb-4">{t.recentActivities}</h3>
+        <div className="space-y-3">
+          {[...meals.slice(-5), ...expenses.slice(-5)]
+            .sort((a, b) => new Date(b.created_at || b.meal_date) - new Date(a.created_at || a.meal_date))
+            .slice(0, 10)
+            .map((item, idx) => (
+              <div key={idx} className={`flex items-center justify-between p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                <div className="flex items-center gap-3">
+                  {item.breakfast !== undefined ? (
+                    <Calendar className="w-5 h-5 text-blue-500" />
+                  ) : (
+                    <DollarSign className="w-5 h-5 text-green-500" />
+                  )}
+                  <div>
+                    <p className="font-medium">
+                      {item.breakfast !== undefined 
+                        ? `${members.find(m => m.id === item.member_id)?.name || 'Unknown'} - Meal`
+                        : item.description
+                      }
+                    </p>
+                    <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      {new Date(item.created_at || item.meal_date).toLocaleString()}
+                    </p>
                   </div>
-                ))}
-              {menuItems.filter(item => item.meal_type === mealType && item.menu_date === today).length === 0 && (
-                <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>No items added</p>
-              )}
-            </div>
-          </div>
-        ))}
+                </div>
+                {item.amount && <span className="font-bold">৳{parseFloat(item.amount).toFixed(2)}</span>}
+              </div>
+            ))}
+          {meals.length === 0 && expenses.length === 0 && (
+            <p className="text-center py-8 text-gray-500">No activities yet</p>
+          )}
+        </div>
       </div>
     </div>
   );
 };
 
-export default Menu;
+export default Dashboard;
