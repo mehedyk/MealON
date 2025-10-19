@@ -1,6 +1,5 @@
 // ============================================
-// REDESIGNED AuthContext - Works with new backend
-// Replace your src/context/AuthContext.jsx with this
+// FILE 1: src/context/AuthContext.jsx
 // ============================================
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase } from '../lib/supabase';
@@ -22,7 +21,7 @@ export const AuthProvider = ({ children }) => {
 
   const loadMemberData = async (userId) => {
     try {
-      console.log('🔄 Loading member data for user:', userId);
+      console.log('🔄 Loading member data for:', userId);
       
       const { data: memberData, error: memberError } = await supabase
         .from('members')
@@ -30,23 +29,21 @@ export const AuthProvider = ({ children }) => {
         .eq('user_id', userId)
         .maybeSingle();
 
-      console.log('📊 Member query result:', { memberData, memberError });
-
       if (memberError) {
-        console.error('❌ Member query error:', memberError);
+        console.error('❌ Member error:', memberError);
         setMember(null);
         setMess(null);
         return;
       }
       
       if (!memberData) {
-        console.log('⚠️ No member found for user');
+        console.log('⚠️ No member found');
         setMember(null);
         setMess(null);
         return;
       }
 
-      console.log('✅ Member found:', memberData);
+      console.log('✅ Member found:', memberData.name);
       setMember(memberData);
 
       if (memberData.mess_id) {
@@ -56,15 +53,13 @@ export const AuthProvider = ({ children }) => {
           .eq('id', memberData.mess_id)
           .single();
 
-        if (messError) {
-          console.error('❌ Mess query error:', messError);
-        } else if (messData) {
-          console.log('✅ Mess loaded:', messData);
+        if (!messError && messData) {
+          console.log('✅ Mess loaded:', messData.name);
           setMess(messData);
         }
       }
     } catch (err) {
-      console.error('❌ Unexpected error loading member:', err);
+      console.error('❌ Load error:', err);
       setMember(null);
       setMess(null);
     }
@@ -72,257 +67,143 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     let mounted = true;
-    let authSubscription = null;
 
     const initAuth = async () => {
       try {
-        console.log('🚀 Initializing auth...');
+        const { data: { session } } = await supabase.auth.getSession();
         
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.error('❌ Session error:', sessionError);
-          if (mounted) setLoading(false);
-          return;
-        }
-
         if (session?.user && mounted) {
-          console.log('✅ Session found:', session.user.email);
           setUser(session.user);
           await loadMemberData(session.user.id);
-        } else {
-          console.log('⚠️ No active session');
         }
       } catch (err) {
-        console.error('❌ Init auth error:', err);
+        console.error('❌ Init error:', err);
       } finally {
-        if (mounted) {
-          setLoading(false);
-          console.log('✅ Auth initialization complete');
-        }
+        if (mounted) setLoading(false);
       }
     };
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('🔔 Auth event:', event);
-        
         if (!mounted) return;
 
         if (event === 'SIGNED_IN' && session?.user) {
-          console.log('✅ User signed in:', session.user.email);
           setUser(session.user);
           await loadMemberData(session.user.id);
         } else if (event === 'SIGNED_OUT') {
-          console.log('👋 User signed out');
           setUser(null);
           setMember(null);
           setMess(null);
-        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-          console.log('🔄 Token refreshed');
-          setUser(session.user);
-          await loadMemberData(session.user.id);
         }
       }
     );
 
-    authSubscription = subscription;
     initAuth();
-
     return () => {
       mounted = false;
-      if (authSubscription) {
-        authSubscription.unsubscribe();
-      }
+      subscription.unsubscribe();
     };
   }, []);
 
   const signUp = async (email, password, userData) => {
     try {
-      setError(null);
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          data: {
-            name: userData.name,
-            phone: userData.phone,
-            country_code: userData.country_code
-          }
-        }
+        options: { data: userData }
       });
-      
       if (error) throw error;
       return { data, error: null };
     } catch (err) {
-      setError(err.message);
       return { data: null, error: err.message };
     }
   };
 
   const signIn = async (email, password) => {
     try {
-      setError(null);
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-      
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       return { data, error: null };
     } catch (err) {
-      setError(err.message);
       return { data: null, error: err.message };
     }
   };
 
   const signOut = async () => {
     try {
-      setError(null);
-      console.log('👋 Signing out...');
-      
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
+      await supabase.auth.signOut();
       setUser(null);
       setMember(null);
       setMess(null);
       localStorage.clear();
-      
-      console.log('✅ Signed out successfully');
       return { error: null };
     } catch (err) {
-      console.error('❌ Sign out error:', err);
-      setError(err.message);
       return { error: err.message };
     }
   };
 
   const resetPassword = async (email) => {
     try {
-      setError(null);
       const { error } = await supabase.auth.resetPasswordForEmail(email);
       if (error) throw error;
       return { error: null };
     } catch (err) {
-      setError(err.message);
       return { error: err.message };
     }
   };
 
   const createMess = async (messName, userName = null) => {
     try {
-      setError(null);
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
+      if (!user) throw new Error('Not authenticated');
 
-      console.log('🔍 Checking if user already has a mess...');
-      
-      const { data: existingMember } = await supabase
+      const { data: existing } = await supabase
         .from('members')
-        .select('id, mess_id')
+        .select('id')
         .eq('user_id', user.id)
         .maybeSingle();
 
-      if (existingMember) {
-        console.log('⚠️ User already has a mess! Reloading...');
+      if (existing) {
         await loadMemberData(user.id);
         throw new Error('You already have a mess!');
       }
 
-      const memberName = userName || 
-                        user.user_metadata?.name || 
-                        user.email?.split('@')[0] || 
-                        'User';
+      const memberName = userName || user.user_metadata?.name || user.email.split('@')[0];
       
-      const memberPhone = user.user_metadata?.phone || '';
-      const memberCountryCode = user.user_metadata?.country_code || '+880';
-      
-      console.log('📝 Creating mess...');
-      
-      if (!messName || messName.trim() === '') {
-        throw new Error('Mess name is required');
-      }
-      if (!memberName || memberName.trim() === '') {
-        throw new Error('Your name is required');
-      }
-      
-      const params = {
+      const { data, error } = await supabase.rpc('create_mess_with_member', {
         p_mess_name: messName.trim(),
         p_user_id: user.id,
         p_name: memberName.trim(),
         p_email: user.email.trim(),
-        p_phone: memberPhone,
-        p_country_code: memberCountryCode
-      };
-      
-      console.log('📤 Calling RPC...');
-      
-      const { data, error } = await supabase.rpc('create_mess_with_member', params);
+        p_phone: user.user_metadata?.phone || '',
+        p_country_code: user.user_metadata?.country_code || '+880'
+      });
 
-      if (error) {
-        console.error('❌ RPC Error:', error);
-        throw new Error(error.message);
-      }
+      if (error) throw error;
 
-      console.log('✅ RPC Success:', data);
-
-      const messData = data.mess;
-      const memberData = data.member;
-
-      setMess(messData);
-      setMember(memberData);
+      setMess(data.mess);
+      setMember(data.member);
       
-      console.log('✅ State updated - mess created!');
-      
-      return { data: messData, error: null };
+      return { data: data.mess, error: null };
     } catch (err) {
-      console.error('❌ Create mess failed:', err);
-      setError(err.message);
       return { data: null, error: err.message };
     }
   };
 
-  // NEW: Simplified join mess using the new function
   const joinMess = async (messCode) => {
     try {
-      setError(null);
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      console.log('🔍 Joining mess with code:', messCode);
-
-      const userName = user.user_metadata?.name || user.email.split('@')[0];
+      if (!user) throw new Error('Not authenticated');
 
       const { data, error } = await supabase.rpc('join_mess_with_code', {
         p_mess_code: messCode.trim(),
         p_user_id: user.id,
         p_user_email: user.email,
-        p_user_name: userName
+        p_user_name: user.user_metadata?.name || user.email.split('@')[0]
       });
 
-      if (error) {
-        console.error('❌ Join error:', error);
-        throw new Error(error.message);
-      }
-
-      console.log('✅ Join request sent:', data);
+      if (error) throw error;
       return { data, error: null };
     } catch (err) {
-      console.error('❌ Join mess error:', err);
-      setError(err.message);
       return { data: null, error: err.message };
-    }
-  };
-
-  const reloadMemberData = async () => {
-    if (user) {
-      console.log('🔄 Manually reloading member data...');
-      await loadMemberData(user.id);
     }
   };
 
@@ -338,12 +219,8 @@ export const AuthProvider = ({ children }) => {
     resetPassword,
     createMess,
     joinMess,
-    reloadMemberData
+    reloadMemberData: () => user && loadMemberData(user.id)
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
