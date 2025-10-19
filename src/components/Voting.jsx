@@ -1,22 +1,29 @@
 // ============================================
-// 6. src/components/Voting.jsx
+// FILE 8: src/components/Voting.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
-import { Check } from 'lucide-react';
+import { Check, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const Voting = ({ darkMode, t, mess, member }) => {
   const [members, setMembers] = useState([]);
   const [votes, setVotes] = useState({});
   const [myVote, setMyVote] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const votingPeriod = `${new Date().getFullYear()}-${new Date().getMonth() + 1}`;
 
   useEffect(() => {
     loadData();
+    
+    const channel = supabase.channel('voting_updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'votes', filter: `mess_id=eq.${mess.id}` }, loadData)
+      .subscribe();
+
+    return () => channel.unsubscribe();
   }, [mess.id]);
 
   const loadData = async () => {
+    setLoading(true);
     try {
       const [membersRes, votesRes] = await Promise.all([
         supabase.from('members').select('*').eq('mess_id', mess.id),
@@ -60,11 +67,16 @@ const Voting = ({ darkMode, t, mess, member }) => {
     }
   };
 
-  if (loading) return <div className="text-center py-12">{t.loading}</div>;
+  if (loading) return <div className="text-center py-12"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div></div>;
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">{t.voting}</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold">{t.voting}</h2>
+        <button onClick={loadData} className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}>
+          <RefreshCw className="w-5 h-5" />
+        </button>
+      </div>
       
       <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg mb-6`}>
         <h3 className="text-xl font-bold mb-2">{t.currentManager}</h3>
