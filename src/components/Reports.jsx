@@ -2,20 +2,21 @@
 // 7. src/components/Reports.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
-import { Download } from 'lucide-react';
+import { Download, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const Reports = ({ darkMode, t, mess, member }) => {
   const [members, setMembers] = useState([]);
   const [meals, setMeals] = useState([]);
   const [expenses, setExpenses] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     loadData();
   }, [mess.id]);
 
   const loadData = async () => {
+    setLoading(true);
     try {
       const [membersRes, mealsRes, expensesRes] = await Promise.all([
         supabase.from('members').select('*').eq('mess_id', mess.id),
@@ -35,11 +36,23 @@ const Reports = ({ darkMode, t, mess, member }) => {
 
   const calculateMealStats = () => {
     const currentMonth = new Date().getMonth();
-    const monthMeals = meals.filter(m => new Date(m.meal_date).getMonth() === currentMonth);
+    const currentYear = new Date().getFullYear();
+    
+    const monthMeals = meals.filter(m => {
+      const mealDate = new Date(m.meal_date);
+      return mealDate.getMonth() === currentMonth && mealDate.getFullYear() === currentYear;
+    });
+    
     const totalMeals = monthMeals.reduce((acc, m) => 
       acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0
     );
-    const totalExpenseAmount = expenses.reduce((acc, e) => acc + parseFloat(e.amount), 0);
+    
+    const monthExpenses = expenses.filter(e => {
+      const expenseDate = new Date(e.expense_date || e.created_at);
+      return expenseDate.getMonth() === currentMonth && expenseDate.getFullYear() === currentYear;
+    });
+    
+    const totalExpenseAmount = monthExpenses.reduce((acc, e) => acc + parseFloat(e.amount || 0), 0);
     const mealRate = totalMeals > 0 ? totalExpenseAmount / totalMeals : 0;
     
     return { totalMeals, mealRate, totalExpenseAmount };
@@ -75,18 +88,18 @@ const Reports = ({ darkMode, t, mess, member }) => {
       doc.text(`Total Expenses: ৳${stats.totalExpenseAmount.toFixed(2)}`, 14, 60);
       doc.text(`Meal Rate: ৳${stats.mealRate.toFixed(2)}`, 14, 66);
       
-      const tableData = members.map(member => {
+      const tableData = members.map(memberItem => {
         const memberMeals = meals
-          .filter(m => m.member_id === member.id)
+          .filter(m => m.member_id === memberItem.id)
           .reduce((acc, m) => acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0);
         const memberExpenses = expenses
-          .filter(e => e.paid_by === member.id)
+          .filter(e => e.paid_by === memberItem.id)
           .reduce((acc, e) => acc + parseFloat(e.amount), 0);
         const memberShare = stats.mealRate * memberMeals;
         const memberBalance = memberExpenses - memberShare;
         
         return [
-          member.name,
+          memberItem.name,
           memberMeals.toString(),
           `৳${memberExpenses.toFixed(2)}`,
           `৳${memberShare.toFixed(2)}`,
@@ -114,11 +127,16 @@ const Reports = ({ darkMode, t, mess, member }) => {
     }
   };
 
-  if (loading) return <div className="text-center py-12">{t.loading}</div>;
+  if (loading) return <div className="text-center py-12"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div></div>;
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">{t.reports}</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold">{t.reports}</h2>
+        <button onClick={loadData} className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}>
+          <RefreshCw className="w-5 h-5" />
+        </button>
+      </div>
       
       <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg mb-6`}>
         <h3 className="text-xl font-bold mb-4">{t.monthlyReport}</h3>
