@@ -2,14 +2,18 @@
 // 7. src/components/Reports.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
-import { Download, RefreshCw } from 'lucide-react';
+import { Download, RefreshCw, TrendingUp, DollarSign, Users, Calendar } from 'lucide-react';
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, AreaChart, Area, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { supabase } from '../lib/supabase';
+
+const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'];
 
 const Reports = ({ darkMode, t, mess, member }) => {
   const [members, setMembers] = useState([]);
   const [meals, setMeals] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [selectedChart, setSelectedChart] = useState('overview');
 
   useEffect(() => {
     loadData();
@@ -28,187 +32,385 @@ const Reports = ({ darkMode, t, mess, member }) => {
       setMeals(mealsRes.data || []);
       setExpenses(expensesRes.data || []);
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('Error:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const calculateMealStats = () => {
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
-    
-    const monthMeals = meals.filter(m => {
-      const mealDate = new Date(m.meal_date);
-      return mealDate.getMonth() === currentMonth && mealDate.getFullYear() === currentYear;
-    });
-    
-    const totalMeals = monthMeals.reduce((acc, m) => 
-      acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0
-    );
-    
-    const monthExpenses = expenses.filter(e => {
-      const expenseDate = new Date(e.expense_date || e.created_at);
-      return expenseDate.getMonth() === currentMonth && expenseDate.getFullYear() === currentYear;
-    });
-    
-    const totalExpenseAmount = monthExpenses.reduce((acc, e) => acc + parseFloat(e.amount || 0), 0);
-    const mealRate = totalMeals > 0 ? totalExpenseAmount / totalMeals : 0;
-    
-    return { totalMeals, mealRate, totalExpenseAmount };
-  };
+  // Calculate stats
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+  
+  const monthMeals = meals.filter(m => {
+    const date = new Date(m.meal_date);
+    return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+  });
 
-  const stats = calculateMealStats();
+  const totalMeals = monthMeals.reduce((acc, m) => 
+    acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0
+  );
 
-  const exportToPDF = async () => {
-    try {
-      const { jsPDF } = await import('jspdf');
-      await import('jspdf-autotable');
-      
-      const doc = new jsPDF();
-      const pageWidth = doc.internal.pageSize.width;
-      
-      doc.setFontSize(20);
-      doc.setFont(undefined, 'bold');
-      doc.text(mess.name, pageWidth / 2, 15, { align: 'center' });
-      
-      doc.setFontSize(12);
-      doc.setFont(undefined, 'normal');
-      doc.text('Monthly Report', pageWidth / 2, 22, { align: 'center' });
-      doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth / 2, 28, { align: 'center' });
-      
-      doc.setFontSize(14);
-      doc.setFont(undefined, 'bold');
-      doc.text('Summary', 14, 40);
-      
-      doc.setFontSize(10);
-      doc.setFont(undefined, 'normal');
-      doc.text(`Total Members: ${members.length}`, 14, 48);
-      doc.text(`Total Meals: ${stats.totalMeals}`, 14, 54);
-      doc.text(`Total Expenses: ৳${stats.totalExpenseAmount.toFixed(2)}`, 14, 60);
-      doc.text(`Meal Rate: ৳${stats.mealRate.toFixed(2)}`, 14, 66);
-      
-      const tableData = members.map(memberItem => {
-        const memberMeals = meals
-          .filter(m => m.member_id === memberItem.id)
-          .reduce((acc, m) => acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0);
-        const memberExpenses = expenses
-          .filter(e => e.paid_by === memberItem.id)
-          .reduce((acc, e) => acc + parseFloat(e.amount), 0);
-        const memberShare = stats.mealRate * memberMeals;
-        const memberBalance = memberExpenses - memberShare;
-        
-        return [
-          memberItem.name,
-          memberMeals.toString(),
-          `৳${memberExpenses.toFixed(2)}`,
-          `৳${memberShare.toFixed(2)}`,
-          `৳${Math.abs(memberBalance).toFixed(2)} ${memberBalance >= 0 ? '(owed)' : '(owes)'}`
-        ];
-      });
-      
-      doc.autoTable({
-        startY: 75,
-        head: [['Member', 'Meals', 'Paid', 'Share', 'Balance']],
-        body: tableData,
-        theme: 'grid',
-        styles: { fontSize: 9, font: 'helvetica' },
-        headStyles: { fillColor: [59, 130, 246], textColor: 255 }
-      });
-      
-      const finalY = doc.lastAutoTable.finalY + 10;
-      doc.setFontSize(10);
-      doc.text(`Mess Code: ${mess.mess_code}`, 14, finalY);
-      
-      doc.save(`${mess.name}_Report_${new Date().toISOString().split('T')[0]}.pdf`);
-    } catch (error) {
-      console.error('PDF export error:', error);
-      alert('Error exporting PDF');
+  const monthExpenses = expenses.filter(e => {
+    const date = new Date(e.expense_date || e.created_at);
+    return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+  });
+
+  const totalExpense = monthExpenses.reduce((acc, e) => acc + parseFloat(e.amount || 0), 0);
+  const mealRate = totalMeals > 0 ? totalExpense / totalMeals : 0;
+
+  // Chart 1: Member-wise meal consumption (Bar Chart)
+  const memberMealData = members.map(m => {
+    const memberMeals = monthMeals
+      .filter(meal => meal.member_id === m.id)
+      .reduce((acc, meal) => acc + (meal.breakfast ? 1 : 0) + (meal.lunch ? 1 : 0) + (meal.dinner ? 1 : 0), 0);
+    
+    return {
+      name: m.name.split(' ')[0],
+      meals: memberMeals,
+      fullName: m.name
+    };
+  }).sort((a, b) => b.meals - a.meals);
+
+  // Chart 2: Expense by category (Pie Chart)
+  const categoryData = monthExpenses.reduce((acc, e) => {
+    const cat = e.category || 'misc';
+    acc[cat] = (acc[cat] || 0) + parseFloat(e.amount);
+    return acc;
+  }, {});
+
+  const expenseByCategory = Object.keys(categoryData).map(key => ({
+    name: t[key] || key,
+    value: categoryData[key]
+  }));
+
+  // Chart 3: Daily expense trend (Line Chart)
+  const dailyExpenses = monthExpenses.reduce((acc, e) => {
+    const date = new Date(e.expense_date || e.created_at).getDate();
+    acc[date] = (acc[date] || 0) + parseFloat(e.amount);
+    return acc;
+  }, {});
+
+  const expenseTrendData = Array.from({ length: 31 }, (_, i) => ({
+    day: i + 1,
+    amount: dailyExpenses[i + 1] || 0
+  })).filter(d => d.amount > 0);
+
+  // Chart 4: Member balance (Bar Chart)
+  const memberBalanceData = members.map(m => {
+    const memberMeals = monthMeals
+      .filter(meal => meal.member_id === m.id)
+      .reduce((acc, meal) => acc + (meal.breakfast ? 1 : 0) + (meal.lunch ? 1 : 0) + (meal.dinner ? 1 : 0), 0);
+    
+    const memberExpenses = monthExpenses
+      .filter(e => e.paid_by === m.id)
+      .reduce((acc, e) => acc + parseFloat(e.amount), 0);
+    
+    const share = mealRate * memberMeals;
+    const balance = memberExpenses - share;
+    
+    return {
+      name: m.name.split(' ')[0],
+      paid: memberExpenses,
+      share: share,
+      balance: balance,
+      fullName: m.name
+    };
+  });
+
+  // Chart 5: Meal type distribution (Pie Chart)
+  const mealTypeData = [
+    { name: t.breakfast, value: monthMeals.filter(m => m.breakfast).length },
+    { name: t.lunch, value: monthMeals.filter(m => m.lunch).length },
+    { name: t.dinner, value: monthMeals.filter(m => m.dinner).length }
+  ];
+
+  // Chart 6: Weekly expense (Area Chart)
+  const weeklyData = monthExpenses.reduce((acc, e) => {
+    const week = Math.floor(new Date(e.expense_date || e.created_at).getDate() / 7);
+    acc[week] = (acc[week] || 0) + parseFloat(e.amount);
+    return acc;
+  }, {});
+
+  const weeklyExpenseData = Object.keys(weeklyData).map(week => ({
+    week: `Week ${parseInt(week) + 1}`,
+    amount: weeklyData[week]
+  }));
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} p-3 rounded-lg shadow-lg border`}>
+          <p className="font-semibold">{label}</p>
+          {payload.map((entry, index) => (
+            <p key={index} style={{ color: entry.color }} className="text-sm">
+              {entry.name}: ৳{typeof entry.value === 'number' ? entry.value.toFixed(2) : entry.value}
+            </p>
+          ))}
+        </div>
+      );
     }
+    return null;
   };
 
-  if (loading) return <div className="text-center py-12"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div></div>;
+  if (loading) {
+    return (
+      <div className="text-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+        <p>{t.loading}</p>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">{t.reports}</h2>
-        <button onClick={loadData} className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-bold">{t.reports}</h2>
+        <button 
+          onClick={loadData} 
+          className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition`}
+        >
           <RefreshCw className="w-5 h-5" />
         </button>
       </div>
-      
-      <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg mb-6`}>
-        <h3 className="text-xl font-bold mb-4">{t.monthlyReport}</h3>
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{t.totalMembers}</p>
-              <p className="text-2xl font-bold">{members.length}</p>
-            </div>
-            <div>
-              <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{t.total} {t.meals}</p>
-              <p className="text-2xl font-bold">{stats.totalMeals}</p>
-            </div>
-            <div>
-              <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{t.totalExpenses}</p>
-              <p className="text-2xl font-bold">৳{stats.totalExpenseAmount.toFixed(2)}</p>
-            </div>
-            <div>
-              <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{t.mealRate}</p>
-              <p className="text-2xl font-bold">৳{stats.mealRate.toFixed(2)}</p>
-            </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className={`${darkMode ? 'bg-gradient-to-br from-blue-600 to-blue-800' : 'bg-gradient-to-br from-blue-500 to-blue-700'} rounded-xl p-6 text-white shadow-lg`}>
+          <div className="flex items-center justify-between mb-2">
+            <Users className="w-8 h-8 opacity-80" />
+            <TrendingUp className="w-5 h-5" />
           </div>
-          <button 
-            onClick={exportToPDF}
-            className="flex items-center gap-2 bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition"
-          >
-            <Download className="w-5 h-5" />
-            {t.export} PDF
-          </button>
+          <p className="text-2xl font-bold">{members.length}</p>
+          <p className="text-sm opacity-90">{t.totalMembers}</p>
+        </div>
+
+        <div className={`${darkMode ? 'bg-gradient-to-br from-green-600 to-green-800' : 'bg-gradient-to-br from-green-500 to-green-700'} rounded-xl p-6 text-white shadow-lg`}>
+          <div className="flex items-center justify-between mb-2">
+            <Calendar className="w-8 h-8 opacity-80" />
+            <TrendingUp className="w-5 h-5" />
+          </div>
+          <p className="text-2xl font-bold">{totalMeals}</p>
+          <p className="text-sm opacity-90">{t.total} {t.meals}</p>
+        </div>
+
+        <div className={`${darkMode ? 'bg-gradient-to-br from-red-600 to-red-800' : 'bg-gradient-to-br from-red-500 to-red-700'} rounded-xl p-6 text-white shadow-lg`}>
+          <div className="flex items-center justify-between mb-2">
+            <DollarSign className="w-8 h-8 opacity-80" />
+            <TrendingUp className="w-5 h-5" />
+          </div>
+          <p className="text-2xl font-bold">৳{totalExpense.toFixed(0)}</p>
+          <p className="text-sm opacity-90">{t.totalExpenses}</p>
+        </div>
+
+        <div className={`${darkMode ? 'bg-gradient-to-br from-purple-600 to-purple-800' : 'bg-gradient-to-br from-purple-500 to-purple-700'} rounded-xl p-6 text-white shadow-lg`}>
+          <div className="flex items-center justify-between mb-2">
+            <DollarSign className="w-8 h-8 opacity-80" />
+            <TrendingUp className="w-5 h-5" />
+          </div>
+          <p className="text-2xl font-bold">৳{mealRate.toFixed(2)}</p>
+          <p className="text-sm opacity-90">{t.mealRate}</p>
         </div>
       </div>
 
-      <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
-        <h3 className="text-xl font-bold mb-4">Member-wise Summary</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className={`${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                <th className="p-3 text-left">Member</th>
-                <th className="p-3 text-left">Meals</th>
-                <th className="p-3 text-left">Expenses Paid</th>
-                <th className="p-3 text-left">Share</th>
-                <th className="p-3 text-left">Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map(memberItem => {
-                const memberMeals = meals
-                  .filter(m => m.member_id === memberItem.id)
-                  .reduce((acc, m) => acc + (m.breakfast ? 1 : 0) + (m.lunch ? 1 : 0) + (m.dinner ? 1 : 0), 0);
-                const memberExpenses = expenses.filter(e => e.paid_by === memberItem.id).reduce((acc, e) => acc + parseFloat(e.amount), 0);
-                const memberShare = stats.mealRate * memberMeals;
-                const memberBalance = memberExpenses - memberShare;
-                
-                return (
-                  <tr key={memberItem.id} className={`border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                    <td className="p-3 font-medium">{memberItem.name}</td>
-                    <td className="p-3">{memberMeals}</td>
-                    <td className="p-3">৳{memberExpenses.toFixed(2)}</td>
-                    <td className="p-3">৳{memberShare.toFixed(2)}</td>
-                    <td className={`p-3 font-bold ${memberBalance > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      ৳{Math.abs(memberBalance).toFixed(2)}
-                      <span className="text-xs ml-1">
-                        {memberBalance > 0 ? '(owed)' : '(owes)'}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* Chart Selection */}
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        {['overview', 'meals', 'expenses', 'balance', 'trends'].map(type => (
+          <button
+            key={type}
+            onClick={() => setSelectedChart(type)}
+            className={`px-4 py-2 rounded-lg whitespace-nowrap transition ${
+              selectedChart === type
+                ? 'bg-blue-600 text-white'
+                : darkMode 
+                ? 'bg-gray-700 hover:bg-gray-600' 
+                : 'bg-gray-200 hover:bg-gray-300'
+            }`}
+          >
+            {type.charAt(0).toUpperCase() + type.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* Charts Grid */}
+      {selectedChart === 'overview' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Chart 1: Member Meal Consumption */}
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+            <h3 className="text-xl font-bold mb-4">Member Meal Consumption</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={memberMealData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
+                <XAxis dataKey="name" stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+                <YAxis stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="meals" fill="#3B82F6" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Chart 2: Expense by Category */}
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+            <h3 className="text-xl font-bold mb-4">Expense by Category</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={expenseByCategory}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {expenseByCategory.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
         </div>
+      )}
+
+      {selectedChart === 'meals' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Meal Type Distribution */}
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+            <h3 className="text-xl font-bold mb-4">Meal Type Distribution</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={mealTypeData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  fill="#8884d8"
+                  paddingAngle={5}
+                  dataKey="value"
+                  label
+                >
+                  {mealTypeData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index]} />
+                  ))}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Member Meal Bar */}
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+            <h3 className="text-xl font-bold mb-4">Top Meal Consumers</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={memberMealData.slice(0, 5)} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
+                <XAxis type="number" stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+                <YAxis dataKey="name" type="category" stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="meals" fill="#10B981" radius={[0, 8, 8, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {selectedChart === 'expenses' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Daily Expense Trend */}
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+            <h3 className="text-xl font-bold mb-4">Daily Expense Trend</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={expenseTrendData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
+                <XAxis dataKey="day" stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+                <YAxis stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+                <Tooltip content={<CustomTooltip />} />
+                <Line type="monotone" dataKey="amount" stroke="#EF4444" strokeWidth={2} dot={{ fill: '#EF4444' }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Weekly Expense */}
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+            <h3 className="text-xl font-bold mb-4">Weekly Expense</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={weeklyExpenseData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
+                <XAxis dataKey="week" stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+                <YAxis stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+                <Tooltip content={<CustomTooltip />} />
+                <Area type="monotone" dataKey="amount" stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.6} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {selectedChart === 'balance' && (
+        <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+          <h3 className="text-xl font-bold mb-4">Member Balance Overview</h3>
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart data={memberBalanceData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
+              <XAxis dataKey="name" stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+              <YAxis stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend />
+              <Bar dataKey="paid" fill="#10B981" name="Paid" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="share" fill="#F59E0B" name="Share" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {selectedChart === 'trends' && (
+        <div className="grid grid-cols-1 gap-6">
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg`}>
+            <h3 className="text-xl font-bold mb-4">Expense Trends (Last 30 Days)</h3>
+            <ResponsiveContainer width="100%" height={350}>
+              <AreaChart data={expenseTrendData}>
+                <defs>
+                  <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
+                <XAxis dataKey="day" stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+                <YAxis stroke={darkMode ? '#9CA3AF' : '#6B7280'} />
+                <Tooltip content={<CustomTooltip />} />
+                <Area type="monotone" dataKey="amount" stroke="#3B82F6" fillOpacity={1} fill="url(#colorAmount)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Export Button */}
+      <div className="flex justify-center">
+        <button
+          onClick={() => {
+            import('jspdf').then(({ jsPDF }) => {
+              const doc = new jsPDF();
+              doc.text(`${mess.name} - Monthly Report`, 14, 15);
+              doc.text(`Total Members: ${members.length}`, 14, 25);
+              doc.text(`Total Meals: ${totalMeals}`, 14, 35);
+              doc.text(`Total Expenses: ৳${totalExpense.toFixed(2)}`, 14, 45);
+              doc.text(`Meal Rate: ৳${mealRate.toFixed(2)}`, 14, 55);
+              doc.save(`${mess.name}_Report.pdf`);
+            });
+          }}
+          className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white px-8 py-3 rounded-lg transition shadow-lg"
+        >
+          <Download className="w-5 h-5" />
+          Export PDF Report
+        </button>
       </div>
     </div>
   );
