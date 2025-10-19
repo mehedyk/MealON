@@ -1,20 +1,28 @@
 // ============================================
-// 5. src/components/Rules.jsx
+// FILE 7: src/components/Rules.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const Rules = ({ darkMode, t, mess, member }) => {
   const [rules, setRules] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const isManager = member.role === 'manager' || member.role === 'second_in_command';
 
   useEffect(() => {
     loadRules();
+    
+    const channel = supabase.channel('rules_updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rules', filter: `mess_id=eq.${mess.id}` }, loadRules)
+      .subscribe();
+
+    return () => channel.unsubscribe();
   }, [mess.id]);
 
   const loadRules = async () => {
+    setLoading(true);
     try {
       const { data, error } = await supabase
         .from('rules')
@@ -57,11 +65,16 @@ const Rules = ({ darkMode, t, mess, member }) => {
     }
   };
 
-  if (loading) return <div className="text-center py-12">{t.loading}</div>;
+  if (loading) return <div className="text-center py-12"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div></div>;
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">{t.rules}</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold">{t.rules}</h2>
+        <button onClick={loadRules} className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}>
+          <RefreshCw className="w-5 h-5" />
+        </button>
+      </div>
       
       {isManager && (
         <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg mb-6`}>
@@ -109,6 +122,11 @@ const Rules = ({ darkMode, t, mess, member }) => {
             </div>
           </div>
         ))}
+        {rules.length === 0 && (
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-12 text-center`}>
+            <p className="text-gray-500">No rules added yet</p>
+          </div>
+        )}
       </div>
     </div>
   );
