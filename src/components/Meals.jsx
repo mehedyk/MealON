@@ -2,20 +2,27 @@
 // 2. src/components/Meals.jsx  
 // ============================================
 import React, { useState, useEffect } from 'react';
-import { Bell, Calendar as CalendarIcon } from 'lucide-react';
+import { Bell, Calendar as CalendarIcon, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const Meals = ({ darkMode, t, mess, member }) => {
   const [meals, setMeals] = useState([]);
   const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     loadData();
+    
+    const channel = supabase.channel('meals_updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'meals', filter: `mess_id=eq.${mess.id}` }, loadData)
+      .subscribe();
+
+    return () => channel.unsubscribe();
   }, [mess.id]);
 
   const loadData = async () => {
+    setLoading(true);
     try {
       const [mealsRes, membersRes] = await Promise.all([
         supabase.from('meals').select('*').eq('mess_id', mess.id).order('meal_date', { ascending: false }),
@@ -63,11 +70,16 @@ const Meals = ({ darkMode, t, mess, member }) => {
     }
   };
 
-  if (loading) return <div className="text-center py-12">{t.loading}</div>;
+  if (loading) return <div className="text-center py-12"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div></div>;
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">{t.meals}</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold">{t.meals}</h2>
+        <button onClick={loadData} className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}>
+          <RefreshCw className="w-5 h-5" />
+        </button>
+      </div>
       
       <div className={`${darkMode ? 'bg-yellow-900 border-yellow-700' : 'bg-yellow-50 border-yellow-200'} border-2 rounded-xl p-4 mb-6`}>
         <p className="flex items-center gap-2">
@@ -137,6 +149,7 @@ const Meals = ({ darkMode, t, mess, member }) => {
               </div>
             );
           })}
+          {meals.length === 0 && <p className="text-center py-8 text-gray-500">No meals logged yet</p>}
         </div>
       </div>
     </div>
