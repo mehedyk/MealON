@@ -2,6 +2,7 @@
   "name": "mealon",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -14,7 +15,8 @@
     "@supabase/supabase-js": "^2.29.0",
     "lucide-react": "^0.268.0",
     "jspdf": "^2.5.1",
-    "jspdf-autotable": "^3.8.2"
+    "jspdf-autotable": "^3.8.2",
+    "recharts": "^2.10.3"
   },
   "devDependencies": {
     "vite": "^5.2.0",
