@@ -2,22 +2,30 @@
 // 3. src/components/Expenses.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const Expenses = ({ darkMode, t, mess, member }) => {
   const [expenses, setExpenses] = useState([]);
   const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     loadData();
+    
+    const channel = supabase.channel('expenses_updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses', filter: `mess_id=eq.${mess.id}` }, loadData)
+      .subscribe();
+
+    return () => channel.unsubscribe();
   }, [mess.id]);
 
   const loadData = async () => {
+    setLoading(true);
     try {
       const [expensesRes, membersRes] = await Promise.all([
-        supabase.from('expenses').select('*').eq('mess_id', mess.id).order('created_at', { ascending: false }),
+        supabase.from('expenses').select('*').eq('mess_id', mess.id).order('expense_date', { ascending: false }),
         supabase.from('members').select('*').eq('mess_id', mess.id)
       ]);
 
@@ -45,7 +53,7 @@ const Expenses = ({ darkMode, t, mess, member }) => {
           description: formData.get('description'),
           amount: parseFloat(formData.get('amount')),
           category: formData.get('category'),
-          expense_date: new Date().toISOString().split('T')[0]
+          expense_date: formData.get('expenseDate') || new Date().toISOString().split('T')[0]
         }]);
 
       if (error) throw error;
@@ -58,11 +66,16 @@ const Expenses = ({ darkMode, t, mess, member }) => {
     }
   };
 
-  if (loading) return <div className="text-center py-12">{t.loading}</div>;
+  if (loading) return <div className="text-center py-12"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div></div>;
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">{t.expenses}</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold">{t.expenses}</h2>
+        <button onClick={loadData} className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}>
+          <RefreshCw className="w-5 h-5" />
+        </button>
+      </div>
       
       <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg mb-6`}>
         <h3 className="text-xl font-bold mb-4">{t.addExpense}</h3>
@@ -100,6 +113,16 @@ const Expenses = ({ darkMode, t, mess, member }) => {
               </select>
             </div>
             <div>
+              <label className={`block mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{t.date}</label>
+              <input
+                type="date"
+                name="expenseDate"
+                defaultValue={new Date().toISOString().split('T')[0]}
+                required
+                className={`w-full p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
+              />
+            </div>
+            <div className="md:col-span-2">
               <label className={`block mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{t.paidBy}</label>
               <select
                 name="paidBy"
@@ -154,12 +177,13 @@ const Expenses = ({ darkMode, t, mess, member }) => {
                     </td>
                     <td className="p-3 font-bold">৳{parseFloat(expense.amount).toFixed(2)}</td>
                     <td className="p-3">{payer?.name}</td>
-                    <td className="p-3 text-sm">{new Date(expense.created_at).toLocaleDateString()}</td>
+                    <td className="p-3 text-sm">{new Date(expense.expense_date || expense.created_at).toLocaleDateString()}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          {expenses.length === 0 && <p className="text-center py-8 text-gray-500">No expenses yet</p>}
         </div>
       </div>
     </div>
