@@ -2,19 +2,27 @@
 // 4. src/components/Menu.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const Menu = ({ darkMode, t, mess, member }) => {
   const [menuItems, setMenuItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
     loadMenuItems();
+    
+    const channel = supabase.channel('menu_updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `mess_id=eq.${mess.id}` }, loadMenuItems)
+      .subscribe();
+
+    return () => channel.unsubscribe();
   }, [mess.id]);
 
   const loadMenuItems = async () => {
+    setLoading(true);
     try {
       const { data, error } = await supabase
         .from('menu_items')
@@ -58,12 +66,17 @@ const Menu = ({ darkMode, t, mess, member }) => {
     }
   };
 
-  if (loading) return <div className="text-center py-12">{t.loading}</div>;
+  if (loading) return <div className="text-center py-12"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div></div>;
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">{t.todaysMenu}</h2>
-      
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold">{t.todaysMenu}</h2>
+        <button onClick={loadMenuItems} className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}>
+          <RefreshCw className="w-5 h-5" />
+        </button>
+      </div>
+
       <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 shadow-lg mb-6`}>
         <h3 className="text-xl font-bold mb-4">{t.addMenuItem}</h3>
         <form onSubmit={handleAddMenuItem} className="space-y-4">
