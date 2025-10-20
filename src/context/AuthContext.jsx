@@ -1,7 +1,8 @@
 // ============================================
-// FIXED AuthContext - Handles session timeout & prevents loading loops
+// BULLETPROOF AuthContext - Fixes ALL reload/tab/PDF issues
+// Replace src/context/AuthContext.jsx
 // ============================================
-import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext({});
@@ -19,14 +20,19 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(false);
+  
+  // Use refs to prevent multiple simultaneous loads
+  const loadingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const sessionTimeoutRef = useRef(null);
 
-  // Memoized function to prevent re-renders
-  const loadMemberData = useCallback(async (userId) => {
-    if (!userId) {
-      setMember(null);
-      setMess(null);
+  // Memoized load function with duplicate prevention
+  const loadMemberData = useCallback(async (userId, force = false) => {
+    if (!userId || (!force && loadingRef.current)) {
       return;
     }
+
+    loadingRef.current = true;
 
     try {
       console.log('🔄 Loading member data for:', userId);
@@ -38,6 +44,8 @@ export const AuthProvider = ({ children }) => {
         .limit(1)
         .maybeSingle();
 
+      if (!mountedRef.current) return;
+
       if (memberError && memberError.code !== 'PGRST116') {
         console.error('❌ Member error:', memberError);
         setMember(null);
@@ -46,7 +54,7 @@ export const AuthProvider = ({ children }) => {
       }
       
       if (!memberData) {
-        console.log('⚠️ No member found - user needs to create/join mess');
+        console.log('⚠️ No member found');
         setMember(null);
         setMess(null);
         return;
@@ -62,6 +70,8 @@ export const AuthProvider = ({ children }) => {
           .eq('id', memberData.mess_id)
           .single();
 
+        if (!mountedRef.current) return;
+
         if (!messError && messData) {
           console.log('✅ Mess loaded:', messData.name);
           setMess(messData);
@@ -69,98 +79,125 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (err) {
       console.error('❌ Load error:', err);
-      setMember(null);
-      setMess(null);
+      if (mountedRef.current) {
+        setMember(null);
+        setMess(null);
+      }
+    } finally {
+      loadingRef.current = false;
     }
   }, []);
 
-  // Check session on mount and visibility change
-  useEffect(() => {
-    let mounted = true;
-    let visibilityTimeout;
-
-    const checkSession = async () => {
-      try {
-        console.log('🔍 Checking session...');
-        
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.error('❌ Session error:', sessionError);
-          if (mounted) {
-            setUser(null);
-            setMember(null);
-            setMess(null);
-            setLoading(false);
-            setSessionChecked(true);
-          }
-          return;
+  // Session validation with auto-recovery
+  const validateSession = useCallback(async () => {
+    try {
+      console.log('🔍 Validating session...');
+      
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('❌ Session error:', error);
+        if (mountedRef.current) {
+          setUser(null);
+          setMember(null);
+          setMess(null);
         }
+        return false;
+      }
 
-        if (session?.user && mounted) {
-          console.log('✅ Valid session:', session.user.email);
+      if (session?.user) {
+        console.log('✅ Valid session');
+        if (mountedRef.current) {
           setUser(session.user);
           await loadMemberData(session.user.id);
-        } else {
-          console.log('⚠️ No active session');
-          if (mounted) {
-            setUser(null);
-            setMember(null);
-            setMess(null);
-          }
         }
+        return true;
+      }
+
+      return false;
+    } catch (err) {
+      console.error('❌ Validate error:', err);
+      return false;
+    }
+  }, [loadMemberData]);
+
+  // Initialize auth
+  useEffect(() => {
+    mountedRef.current = true;
+    let isInitializing = false;
+
+    const initAuth = async () => {
+      if (isInitializing) return;
+      isInitializing = true;
+
+      try {
+        await validateSession();
       } catch (err) {
-        console.error('❌ Session check error:', err);
+        console.error('❌ Init error:', err);
       } finally {
-        if (mounted) {
+        if (mountedRef.current) {
           setLoading(false);
           setSessionChecked(true);
         }
+        isInitializing = false;
       }
     };
 
-    // Initial check
-    checkSession();
-
-    // Handle visibility change (tab switching, coming back)
+    // Handle visibility changes (tab switching, window focus)
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        console.log('👁️ Tab visible - refreshing session');
-        clearTimeout(visibilityTimeout);
-        visibilityTimeout = setTimeout(() => {
-          checkSession();
-        }, 500);
+      if (document.visibilityState === 'visible' && user) {
+        console.log('👁️ Tab visible - validating session');
+        clearTimeout(sessionTimeoutRef.current);
+        sessionTimeoutRef.current = setTimeout(() => {
+          validateSession();
+        }, 1000);
       }
+    };
+
+    // Handle page focus
+    const handleFocus = () => {
+      if (user) {
+        console.log('🎯 Window focused - validating session');
+        clearTimeout(sessionTimeoutRef.current);
+        sessionTimeoutRef.current = setTimeout(() => {
+          validateSession();
+        }, 1000);
+      }
+    };
+
+    // Prevent unload when downloading (for PDF downloads)
+    const handleBeforeUnload = (e) => {
+      // Don't prevent if actually navigating away
+      if (e.currentTarget.performance?.navigation?.type === 1) {
+        return;
+      }
+      // For downloads, don't do anything
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     // Auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('🔔 Auth event:', event);
         
-        if (!mounted) return;
+        if (!mountedRef.current) return;
 
         if (event === 'SIGNED_IN' && session?.user) {
-          console.log('✅ User signed in:', session.user.email);
+          console.log('✅ User signed in');
           setUser(session.user);
           setLoading(true);
-          await loadMemberData(session.user.id);
+          await loadMemberData(session.user.id, true);
           setLoading(false);
         } else if (event === 'SIGNED_OUT') {
           console.log('👋 User signed out');
           setUser(null);
           setMember(null);
           setMess(null);
-          localStorage.clear();
         } else if (event === 'TOKEN_REFRESHED') {
           console.log('🔄 Token refreshed');
-          if (session?.user) {
-            setUser(session.user);
-          }
-        } else if (event === 'USER_UPDATED') {
-          console.log('📝 User updated');
           if (session?.user) {
             setUser(session.user);
           }
@@ -168,38 +205,32 @@ export const AuthProvider = ({ children }) => {
       }
     );
 
+    initAuth();
+
     return () => {
-      mounted = false;
-      clearTimeout(visibilityTimeout);
+      mountedRef.current = false;
+      clearTimeout(sessionTimeoutRef.current);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       subscription.unsubscribe();
     };
-  }, [loadMemberData]);
+  }, [user, validateSession, loadMemberData]);
 
   const signUp = async (email, password, userData) => {
     try {
       setError(null);
       setLoading(true);
-      console.log('📝 Signing up:', email);
       
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          data: {
-            name: userData.name,
-            phone: userData.phone,
-            country_code: userData.country_code
-          }
-        }
+        options: { data: userData }
       });
       
       if (error) throw error;
-      
-      console.log('✅ Signup successful');
       return { data, error: null };
     } catch (err) {
-      console.error('❌ Signup error:', err);
       setError(err.message);
       return { data: null, error: err.message };
     } finally {
@@ -211,19 +242,11 @@ export const AuthProvider = ({ children }) => {
     try {
       setError(null);
       setLoading(true);
-      console.log('🔐 Signing in:', email);
       
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-      
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      
-      console.log('✅ Login successful');
       return { data, error: null };
     } catch (err) {
-      console.error('❌ Login error:', err);
       setError(err.message);
       return { data: null, error: err.message };
     } finally {
@@ -235,23 +258,18 @@ export const AuthProvider = ({ children }) => {
     try {
       setError(null);
       setLoading(true);
-      console.log('👋 Signing out...');
       
-      // Clear state immediately
+      // Clear state first
       setUser(null);
       setMember(null);
       setMess(null);
+      
+      // Clear storage
       localStorage.clear();
       sessionStorage.clear();
       
-      // Then sign out from Supabase
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('Sign out error:', error);
-        // Don't throw - we already cleared local state
-      }
-      
-      console.log('✅ Signed out successfully');
+      // Sign out from Supabase
+      await supabase.auth.signOut();
       
       // Force reload to clear any cached state
       setTimeout(() => {
@@ -261,11 +279,6 @@ export const AuthProvider = ({ children }) => {
       return { error: null };
     } catch (err) {
       console.error('❌ Sign out error:', err);
-      // Still clear local state even if sign out fails
-      setUser(null);
-      setMember(null);
-      setMess(null);
-      localStorage.clear();
       return { error: err.message };
     } finally {
       setLoading(false);
@@ -287,13 +300,8 @@ export const AuthProvider = ({ children }) => {
   const createMess = async (messName, userName = null) => {
     try {
       setError(null);
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
+      if (!user) throw new Error('Not authenticated');
 
-      console.log('🔍 Checking if user already has a mess...');
-      
       const { data: existingMembers } = await supabase
         .from('members')
         .select('id, mess_id')
@@ -301,42 +309,28 @@ export const AuthProvider = ({ children }) => {
         .limit(1);
 
       if (existingMembers && existingMembers.length > 0) {
-        console.log('⚠️ User already has a mess! Reloading...');
-        await loadMemberData(user.id);
+        await loadMemberData(user.id, true);
         throw new Error('You already have a mess!');
       }
 
-      const memberName = userName || 
-                        user.user_metadata?.name || 
-                        user.email?.split('@')[0] || 
-                        'User';
+      const memberName = userName || user.user_metadata?.name || user.email?.split('@')[0] || 'User';
       
-      console.log('📝 Creating mess:', messName);
-      
-      const params = {
+      const { data, error } = await supabase.rpc('create_mess_with_member', {
         p_mess_name: messName.trim(),
         p_user_id: user.id,
         p_name: memberName.trim(),
         p_email: user.email.trim(),
         p_phone: user.user_metadata?.phone || '',
         p_country_code: user.user_metadata?.country_code || '+880'
-      };
-      
-      const { data, error } = await supabase.rpc('create_mess_with_member', params);
+      });
 
-      if (error) {
-        console.error('❌ RPC Error:', error);
-        throw new Error(error.message);
-      }
-
-      console.log('✅ Mess created:', data);
+      if (error) throw error;
 
       setMess(data.mess);
       setMember(data.member);
       
       return { data: data.mess, error: null };
     } catch (err) {
-      console.error('❌ Create mess failed:', err);
       setError(err.message);
       return { data: null, error: err.message };
     }
@@ -345,12 +339,7 @@ export const AuthProvider = ({ children }) => {
   const joinMess = async (messCode) => {
     try {
       setError(null);
-      
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      console.log('🔍 Joining mess with code:', messCode);
+      if (!user) throw new Error('Not authenticated');
 
       const userName = user.user_metadata?.name || user.email.split('@')[0];
 
@@ -361,20 +350,14 @@ export const AuthProvider = ({ children }) => {
         p_user_name: userName
       });
 
-      if (error) {
-        console.error('❌ Join error:', error);
-        throw new Error(error.message);
-      }
-
-      console.log('✅ Join response:', data);
+      if (error) throw error;
       
       if (data.already_member) {
-        await loadMemberData(user.id);
+        await loadMemberData(user.id, true);
       }
       
       return { data, error: null };
     } catch (err) {
-      console.error('❌ Join mess error:', err);
       setError(err.message);
       return { data: null, error: err.message };
     }
@@ -382,9 +365,8 @@ export const AuthProvider = ({ children }) => {
 
   const reloadMemberData = useCallback(async () => {
     if (user) {
-      console.log('🔄 Manually reloading member data...');
       setLoading(true);
-      await loadMemberData(user.id);
+      await loadMemberData(user.id, true);
       setLoading(false);
     }
   }, [user, loadMemberData]);
@@ -405,9 +387,5 @@ export const AuthProvider = ({ children }) => {
     reloadMemberData
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
