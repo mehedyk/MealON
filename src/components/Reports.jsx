@@ -138,9 +138,10 @@ const Reports = ({ darkMode, t, mess, member }) => {
   }));
 
   // ============================================
-  // Enhanced PDF Export Function
+  // ULTIMATE PDF EXPORT - Replace existing export function
   // ============================================
-  const exportComprehensivePDF = async () => {
+
+  const exportUltimatePDF = async () => {
     try {
       const { jsPDF } = await import('jspdf');
       await import('jspdf-autotable');
@@ -149,10 +150,11 @@ const Reports = ({ darkMode, t, mess, member }) => {
       let yPos = 20;
       const pageWidth = doc.internal.pageSize.width;
       const pageHeight = doc.internal.pageSize.height;
+      const margin = 14;
       
-      // Helper to check if we need a new page
-      const checkPageBreak = (needed = 20) => {
-        if (yPos + needed > pageHeight - 20) {
+      // Check page break
+      const checkPage = (space = 20) => {
+        if (yPos + space > pageHeight - 20) {
           doc.addPage();
           yPos = 20;
           return true;
@@ -160,238 +162,228 @@ const Reports = ({ darkMode, t, mess, member }) => {
         return false;
       };
       
-      // ===== HEADER =====
+      // === COVER PAGE ===
       doc.setFillColor(59, 130, 246);
-      doc.rect(0, 0, pageWidth, 40, 'F');
+      doc.rect(0, 0, pageWidth, pageHeight, 'F');
       
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(24);
+      doc.setFontSize(36);
       doc.setFont(undefined, 'bold');
-      doc.text(mess.name, pageWidth / 2, 15, { align: 'center' });
+      doc.text(mess.name, pageWidth / 2, 80, { align: 'center' });
+      
+      doc.setFontSize(24);
+      doc.text('Monthly Report', pageWidth / 2, 100, { align: 'center' });
+      
+      doc.setFontSize(16);
+      doc.setFont(undefined, 'normal');
+      doc.text(`Mess Code: ${mess.mess_code}`, pageWidth / 2, 120, { align: 'center' });
       
       doc.setFontSize(12);
-      doc.setFont(undefined, 'normal');
-      doc.text('Monthly Comprehensive Report', pageWidth / 2, 25, { align: 'center' });
-      doc.text(`Code: ${mess.mess_code}`, pageWidth / 2, 32, { align: 'center' });
+      const monthYear = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      doc.text(monthYear, pageWidth / 2, 140, { align: 'center' });
+      doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth / 2, 150, { align: 'center' });
       
-      yPos = 50;
-      doc.setTextColor(0, 0, 0);
-      
-      // ===== REPORT INFO =====
       doc.setFontSize(10);
-      doc.setFont(undefined, 'italic');
-      doc.text(`Generated: ${new Date().toLocaleString()}`, 14, yPos);
-      doc.text(`Period: ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`, pageWidth - 14, yPos, { align: 'right' });
-      yPos += 10;
+      doc.text(`Total Members: ${members.length} | Total Meals: ${totalMeals} | Total Expenses: ৳${totalExpense.toFixed(2)}`, pageWidth / 2, pageHeight - 30, { align: 'center' });
       
-      // ===== EXECUTIVE SUMMARY =====
-      checkPageBreak(40);
-      doc.setFontSize(16);
-      doc.setFont(undefined, 'bold');
-      doc.setTextColor(59, 130, 246);
-      doc.text('📊 Executive Summary', 14, yPos);
-      yPos += 8;
-      
-      doc.setDrawColor(59, 130, 246);
-      doc.setLineWidth(0.5);
-      doc.line(14, yPos, pageWidth - 14, yPos);
-      yPos += 8;
-      
+      // === PAGE 2: EXECUTIVE SUMMARY ===
+      doc.addPage();
+      yPos = 20;
       doc.setTextColor(0, 0, 0);
-      doc.setFontSize(11);
-      doc.setFont(undefined, 'normal');
       
-      const summaryData = [
-        ['Total Members', members.length.toString()],
-        ['Total Meals Consumed', totalMeals.toString()],
-        ['Total Expenses', `৳${totalExpense.toFixed(2)}`],
-        ['Average Meal Rate', `৳${mealRate.toFixed(2)}`],
-        ['Highest Meal Consumer', memberMealData[0]?.fullName || 'N/A'],
-        ['Total Days Active', new Date().getDate().toString()],
-        ['Average Daily Expense', `৳${(totalExpense / new Date().getDate()).toFixed(2)}`]
-      ];
+      doc.setFontSize(20);
+      doc.setFont(undefined, 'bold');
+      doc.text('📊 Executive Summary', margin, yPos);
+      yPos += 10;
       
       doc.autoTable({
         startY: yPos,
-        head: [['Metric', 'Value']],
-        body: summaryData,
+        head: [['Metric', 'Value', 'Details']],
+        body: [
+          ['Total Members', members.length, `${members.filter(m => m.role === 'manager').length} Manager, ${members.filter(m => m.role === 'member').length} Members`],
+          ['Total Meals', totalMeals, `Avg ${(totalMeals / members.length).toFixed(1)} per member`],
+          ['Breakfast', monthMeals.filter(m => m.breakfast).length, `${((monthMeals.filter(m => m.breakfast).length / totalMeals) * 100).toFixed(1)}% of total`],
+          ['Lunch', monthMeals.filter(m => m.lunch).length, `${((monthMeals.filter(m => m.lunch).length / totalMeals) * 100).toFixed(1)}% of total`],
+          ['Dinner', monthMeals.filter(m => m.dinner).length, `${((monthMeals.filter(m => m.dinner).length / totalMeals) * 100).toFixed(1)}% of total`],
+          ['Total Expenses', `৳${totalExpense.toFixed(2)}`, `Avg ৳${(totalExpense / members.length).toFixed(2)} per member`],
+          ['Meal Rate', `৳${mealRate.toFixed(2)}`, 'Per meal cost'],
+          ['Daily Avg Expense', `৳${(totalExpense / new Date().getDate()).toFixed(2)}`, `Based on ${new Date().getDate()} days`],
+          ['Projected Month End', `৳${((totalExpense / new Date().getDate()) * 30).toFixed(2)}`, 'Estimated total for 30 days']
+        ],
         theme: 'grid',
-        headStyles: { fillColor: [59, 130, 246], textColor: 255, fontSize: 11, fontStyle: 'bold' },
+        headStyles: { fillColor: [59, 130, 246], fontSize: 11, fontStyle: 'bold' },
         styles: { fontSize: 10, cellPadding: 5 },
         columnStyles: {
-          0: { fontStyle: 'bold', cellWidth: 80 },
-          1: { halign: 'right', fontStyle: 'bold', textColor: [16, 185, 129] }
+          0: { fontStyle: 'bold', cellWidth: 50 },
+          1: { halign: 'right', fontStyle: 'bold', cellWidth: 45, textColor: [16, 185, 129] },
+          2: { fontSize: 9, cellWidth: 85, textColor: [107, 114, 128] }
         }
       });
       
       yPos = doc.lastAutoTable.finalY + 15;
       
-      // ===== MEMBER DETAILS =====
-      checkPageBreak(40);
-      doc.setFontSize(16);
+      // === PAGE 3: MEMBER DETAILS ===
+      checkPage(40);
+      doc.setFontSize(20);
       doc.setFont(undefined, 'bold');
       doc.setTextColor(16, 185, 129);
-      doc.text('👥 Member Details', 14, yPos);
-      yPos += 8;
-      
-      doc.setDrawColor(16, 185, 129);
-      doc.line(14, yPos, pageWidth - 14, yPos);
-      yPos += 8;
+      doc.text('👥 Member Details', margin, yPos);
+      yPos += 10;
       
       const memberDetailsData = members.map(m => {
         const memberMeals = monthMeals
           .filter(meal => meal.member_id === m.id)
           .reduce((acc, meal) => acc + (meal.breakfast ? 1 : 0) + (meal.lunch ? 1 : 0) + (meal.dinner ? 1 : 0), 0);
         
+        const breakfast = monthMeals.filter(meal => meal.member_id === m.id && meal.breakfast).length;
+        const lunch = monthMeals.filter(meal => meal.member_id === m.id && meal.lunch).length;
+        const dinner = monthMeals.filter(meal => meal.member_id === m.id && meal.dinner).length;
+        
         const memberExpenses = monthExpenses
           .filter(e => e.paid_by === m.id)
           .reduce((acc, e) => acc + parseFloat(e.amount), 0);
         
-        const memberShare = mealRate * memberMeals;
-        const balance = memberExpenses - memberShare;
+        const share = mealRate * memberMeals;
+        const balance = memberExpenses - share;
         
         return [
           m.name,
-          m.role === 'manager' ? '👑 Manager' : m.role === 'second_in_command' ? '🛡️ 2nd' : 'Member',
-          memberMeals.toString(),
+          m.role === 'manager' ? '👑' : m.role === 'second_in_command' ? '🛡️' : '👤',
+          `${breakfast}/${lunch}/${dinner}`,
+          memberMeals,
           `৳${memberExpenses.toFixed(2)}`,
-          `৳${memberShare.toFixed(2)}`,
-          `৳${Math.abs(balance).toFixed(2)} ${balance >= 0 ? '(owed)' : '(owes)'}`
+          `৳${share.toFixed(2)}`,
+          `৳${Math.abs(balance).toFixed(2)}`,
+          balance >= 0 ? '(+)' : '(-)'
         ];
       });
       
       doc.autoTable({
         startY: yPos,
-        head: [['Name', 'Role', 'Meals', 'Paid', 'Share', 'Balance']],
+        head: [['Name', 'Role', 'B/L/D', 'Total', 'Paid', 'Share', 'Balance', '±']],
         body: memberDetailsData,
         theme: 'striped',
-        headStyles: { fillColor: [16, 185, 129], fontSize: 10, fontStyle: 'bold' },
-        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [16, 185, 129], fontSize: 9, fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 3 },
         columnStyles: {
-          0: { cellWidth: 45 },
-          1: { cellWidth: 25 },
-          2: { halign: 'center', cellWidth: 20 },
-          3: { halign: 'right', cellWidth: 28 },
-          4: { halign: 'right', cellWidth: 28 },
-          5: { halign: 'right', cellWidth: 35, fontStyle: 'bold' }
+          0: { cellWidth: 40 },
+          1: { halign: 'center', cellWidth: 12 },
+          2: { halign: 'center', cellWidth: 22, fontSize: 7 },
+          3: { halign: 'center', cellWidth: 15, fontStyle: 'bold' },
+          4: { halign: 'right', cellWidth: 25 },
+          5: { halign: 'right', cellWidth: 25 },
+          6: { halign: 'right', cellWidth: 25, fontStyle: 'bold' },
+          7: { halign: 'center', cellWidth: 10 }
         }
       });
       
       yPos = doc.lastAutoTable.finalY + 15;
       
-      // ===== MEAL BREAKDOWN =====
-      checkPageBreak(40);
-      doc.setFontSize(16);
+      // === PAGE 4: EXPENSE BREAKDOWN ===
+      checkPage(40);
+      doc.setFontSize(20);
       doc.setFont(undefined, 'bold');
-      doc.setTextColor(245, 158, 11);
-      doc.text('🍽️ Meal Breakdown', 14, yPos);
-      yPos += 8;
+      doc.setTextColor(239, 68, 68);
+      doc.text('💰 Expense Breakdown', margin, yPos);
+      yPos += 10;
       
-      doc.setDrawColor(245, 158, 11);
-      doc.line(14, yPos, pageWidth - 14, yPos);
-      yPos += 8;
-      
-      const mealBreakdownData = members.map(m => {
-        const memberMeals = monthMeals.filter(meal => meal.member_id === m.id);
-        const breakfast = memberMeals.filter(meal => meal.breakfast).length;
-        const lunch = memberMeals.filter(meal => meal.lunch).length;
-        const dinner = memberMeals.filter(meal => meal.dinner).length;
-        const total = breakfast + lunch + dinner;
-        
+      // Category breakdown
+      const categoryBreakdown = Object.keys(categoryData).map(key => {
+        const count = monthExpenses.filter(e => e.category === key).length;
+        const avg = categoryData[key] / count;
         return [
-          m.name,
-          breakfast.toString(),
-          lunch.toString(),
-          dinner.toString(),
-          total.toString(),
-          `${((total / totalMeals) * 100).toFixed(1)}%`
+          key.charAt(0).toUpperCase() + key.slice(1),
+          count,
+          `৳${categoryData[key].toFixed(2)}`,
+          `৳${avg.toFixed(2)}`,
+          `${((categoryData[key] / totalExpense) * 100).toFixed(1)}%`
         ];
       });
       
       doc.autoTable({
         startY: yPos,
-        head: [['Member', 'Breakfast', 'Lunch', 'Dinner', 'Total', '% of Total']],
-        body: mealBreakdownData,
-        theme: 'grid',
-        headStyles: { fillColor: [245, 158, 11], fontSize: 10, fontStyle: 'bold' },
-        styles: { fontSize: 9, cellPadding: 4 },
-        columnStyles: {
-          0: { cellWidth: 50 },
-          1: { halign: 'center', cellWidth: 25 },
-          2: { halign: 'center', cellWidth: 25 },
-          3: { halign: 'center', cellWidth: 25 },
-          4: { halign: 'center', cellWidth: 25, fontStyle: 'bold' },
-          5: { halign: 'right', cellWidth: 30 }
-        }
-      });
-      
-      yPos = doc.lastAutoTable.finalY + 15;
-      
-      // ===== EXPENSE DETAILS =====
-      checkPageBreak(40);
-      doc.setFontSize(16);
-      doc.setFont(undefined, 'bold');
-      doc.setTextColor(239, 68, 68);
-      doc.text('💰 Expense Details', 14, yPos);
-      yPos += 8;
-      
-      doc.setDrawColor(239, 68, 68);
-      doc.line(14, yPos, pageWidth - 14, yPos);
-      yPos += 8;
-      
-      // Category breakdown
-      const categoryBreakdown = Object.keys(categoryData).map(key => [
-        key.charAt(0).toUpperCase() + key.slice(1),
-        `৳${categoryData[key].toFixed(2)}`,
-        `${((categoryData[key] / totalExpense) * 100).toFixed(1)}%`
-      ]);
-      
-      doc.autoTable({
-        startY: yPos,
-        head: [['Category', 'Amount', '% of Total']],
+        head: [['Category', 'Count', 'Total', 'Average', '% of Total']],
         body: categoryBreakdown,
-        theme: 'striped',
+        theme: 'grid',
         headStyles: { fillColor: [239, 68, 68], fontSize: 10, fontStyle: 'bold' },
         styles: { fontSize: 10, cellPadding: 5 },
         columnStyles: {
-          0: { cellWidth: 80 },
-          1: { halign: 'right', cellWidth: 50, fontStyle: 'bold' },
-          2: { halign: 'right', cellWidth: 50 }
+          0: { cellWidth: 60 },
+          1: { halign: 'center', cellWidth: 30 },
+          2: { halign: 'right', cellWidth: 35, fontStyle: 'bold' },
+          3: { halign: 'right', cellWidth: 35 },
+          4: { halign: 'right', cellWidth: 30 }
         }
       });
       
       yPos = doc.lastAutoTable.finalY + 15;
       
-      // ===== RECENT EXPENSES =====
-      checkPageBreak(40);
-      doc.setFontSize(14);
+      // === PAGE 5: DAILY EXPENSE DETAILS ===
+      checkPage(40);
+      doc.setFontSize(16);
       doc.setFont(undefined, 'bold');
-      doc.text('Recent Expenses (Last 10)', 14, yPos);
+      doc.text('📅 Daily Expense Details', margin, yPos);
       yPos += 8;
       
-      const recentExpenses = monthExpenses
-        .slice(0, 10)
-        .map(e => {
-          const payer = members.find(m => m.id === e.paid_by);
-          return [
-            new Date(e.expense_date || e.created_at).toLocaleDateString(),
-            e.description.substring(0, 30),
-            payer?.name || 'Unknown',
-            e.category,
-            `৳${parseFloat(e.amount).toFixed(2)}`
-          ];
-        });
+      const dailyDetails = Array.from({ length: new Date().getDate() }, (_, i) => {
+        const day = i + 1;
+        const dayExpenses = monthExpenses.filter(e => new Date(e.expense_date || e.created_at).getDate() === day);
+        const dayTotal = dayExpenses.reduce((acc, e) => acc + parseFloat(e.amount), 0);
+        const dayCount = dayExpenses.length;
+        
+        return [
+          `Day ${day}`,
+          dayCount,
+          dayTotal > 0 ? `৳${dayTotal.toFixed(2)}` : '-',
+          dayTotal > 0 ? `৳${(dayTotal / dayCount).toFixed(2)}` : '-'
+        ];
+      }).filter(d => d[2] !== '-');
+      
+      doc.autoTable({
+        startY: yPos,
+        head: [['Date', 'Transactions', 'Total', 'Average']],
+        body: dailyDetails,
+        theme: 'striped',
+        headStyles: { fillColor: [239, 68, 68], fontSize: 9, fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 3 },
+        columnStyles: {
+          0: { cellWidth: 40 },
+          1: { halign: 'center', cellWidth: 40 },
+          2: { halign: 'right', cellWidth: 50, fontStyle: 'bold' },
+          3: { halign: 'right', cellWidth: 50 }
+        }
+      });
+      
+      yPos = doc.lastAutoTable.finalY + 15;
+      
+      // === PAGE 6: ALL EXPENSES LIST ===
+      checkPage(40);
+      doc.setFontSize(16);
+      doc.setFont(undefined, 'bold');
+      doc.text('📝 All Expenses', margin, yPos);
+      yPos += 8;
+      
+      const allExpenses = monthExpenses.map(e => {
+        const payer = members.find(m => m.id === e.paid_by);
+        return [
+          new Date(e.expense_date || e.created_at).toLocaleDateString('en-GB'),
+          e.description.substring(0, 40),
+          payer?.name || 'Unknown',
+          e.category,
+          `৳${parseFloat(e.amount).toFixed(2)}`
+        ];
+      });
       
       doc.autoTable({
         startY: yPos,
         head: [['Date', 'Description', 'Paid By', 'Category', 'Amount']],
-        body: recentExpenses,
+        body: allExpenses,
         theme: 'grid',
-        headStyles: { fillColor: [239, 68, 68], fontSize: 9, fontStyle: 'bold' },
+        headStyles: { fillColor: [139, 92, 246], fontSize: 9, fontStyle: 'bold' },
         styles: { fontSize: 8, cellPadding: 3 },
         columnStyles: {
           0: { cellWidth: 25 },
-          1: { cellWidth: 50 },
+          1: { cellWidth: 70 },
           2: { cellWidth: 35 },
           3: { cellWidth: 25 },
           4: { halign: 'right', cellWidth: 30, fontStyle: 'bold' }
@@ -400,65 +392,134 @@ const Reports = ({ darkMode, t, mess, member }) => {
       
       yPos = doc.lastAutoTable.finalY + 15;
       
-      // ===== INSIGHTS =====
-      checkPageBreak(40);
-      doc.setFontSize(16);
+      // === PAGE 7: KEY INSIGHTS ===
+      checkPage(40);
+      doc.setFontSize(20);
       doc.setFont(undefined, 'bold');
       doc.setTextColor(139, 92, 246);
-      doc.text('💡 Key Insights', 14, yPos);
-      yPos += 8;
+      doc.text('💡 Key Insights & Analysis', margin, yPos);
+      yPos += 10;
       
-      doc.setDrawColor(139, 92, 246);
-      doc.line(14, yPos, pageWidth - 14, yPos);
+      const avgMealsPerMember = (totalMeals / members.length).toFixed(1);
+      const avgExpensePerMember = (totalExpense / members.length).toFixed(2);
+      const topConsumer = memberMealData[0];
+      const topSpender = members.reduce((max, m) => {
+        const spent = monthExpenses.filter(e => e.paid_by === m.id).reduce((acc, e) => acc + parseFloat(e.amount), 0);
+        return spent > max.amount ? { name: m.name, amount: spent } : max;
+      }, { name: '', amount: 0 });
+      
+      const mostExpensiveDay = expenseTrendData.reduce((max, d) => d.amount > max.amount ? d : max, { amount: 0, day: 0 });
+      const leastExpensiveDay = expenseTrendData.filter(d => d.amount > 0).reduce((min, d) => d.amount < min.amount ? d : min, { amount: Infinity, day: 0 });
+      
+      const insights = [
+        ['Average meals per member', `${avgMealsPerMember} meals`, 'Distribution across all members'],
+        ['Average expense per member', `৳${avgExpensePerMember}`, 'Total divided by member count'],
+        ['Top meal consumer', topConsumer?.fullName || 'N/A', `${topConsumer?.meals || 0} meals consumed`],
+        ['Top contributor', topSpender.name, `Paid ৳${topSpender.amount.toFixed(2)}`],
+        ['Most expensive day', `Day ${mostExpensiveDay.day}`, `৳${mostExpensiveDay.amount.toFixed(2)} spent`],
+        ['Least expensive day', `Day ${leastExpensiveDay.day}`, `৳${leastExpensiveDay.amount.toFixed(2)} spent`],
+        ['Daily average', `৳${(totalExpense / new Date().getDate()).toFixed(2)}`, 'Based on days elapsed'],
+        ['Projected month-end', `৳${((totalExpense / new Date().getDate()) * 30).toFixed(2)}`, 'Estimated for 30 days'],
+        ['Most common category', Object.keys(categoryData).reduce((a, b) => categoryData[a] > categoryData[b] ? a : b), `৳${Math.max(...Object.values(categoryData)).toFixed(2)}`],
+        ['Average per transaction', `৳${(totalExpense / monthExpenses.length).toFixed(2)}`, `Based on ${monthExpenses.length} transactions`]
+      ];
+      
+      doc.autoTable({
+        startY: yPos,
+        head: [['Insight', 'Value', 'Note']],
+        body: insights,
+        theme: 'striped',
+        headStyles: { fillColor: [139, 92, 246], fontSize: 10, fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 4 },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 60 },
+          1: { halign: 'right', fontStyle: 'bold', cellWidth: 50, textColor: [16, 185, 129] },
+          2: { fontSize: 8, cellWidth: 70, textColor: [107, 114, 128] }
+        }
+      });
+      
+      yPos = doc.lastAutoTable.finalY + 15;
+      
+      // === PAGE 8: RECOMMENDATIONS ===
+      checkPage(40);
+      doc.setFontSize(18);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(245, 158, 11);
+      doc.text('🎯 Recommendations', margin, yPos);
       yPos += 10;
       
       doc.setTextColor(0, 0, 0);
       doc.setFontSize(10);
       doc.setFont(undefined, 'normal');
       
-      const avgMealsPerMember = (totalMeals / members.length).toFixed(1);
-      const avgExpensePerMember = (totalExpense / members.length).toFixed(2);
-      const topSpender = members.reduce((max, m) => {
-        const spent = monthExpenses.filter(e => e.paid_by === m.id).reduce((acc, e) => acc + parseFloat(e.amount), 0);
-        return spent > max.amount ? { name: m.name, amount: spent } : max;
-      }, { name: '', amount: 0 });
-      
-      const insights = [
-        `• Average meals per member: ${avgMealsPerMember} meals`,
-        `• Average expense per member: ৳${avgExpensePerMember}`,
-        `• Highest contributor: ${topSpender.name} (৳${topSpender.amount.toFixed(2)})`,
-        `• Most expensive day: ${expenseTrendData.reduce((max, d) => d.amount > max.amount ? d : max, { amount: 0, day: 0 }).day || 'N/A'}`,
-        `• Daily average expense: ৳${(totalExpense / new Date().getDate()).toFixed(2)}`,
-        `• Projected month-end expense: ৳${((totalExpense / new Date().getDate()) * 30).toFixed(2)}`
+      const recommendations = [
+        'Budget Management:',
+        `  • Current monthly trajectory: ৳${((totalExpense / new Date().getDate()) * 30).toFixed(2)}`,
+        `  • Consider setting a monthly budget cap`,
+        '',
+        'Cost Optimization:',
+        `  • Focus on ${Object.keys(categoryData).reduce((a, b) => categoryData[a] > categoryData[b] ? a : b)} expenses (highest category)`,
+        `  • Review expenses on Day ${mostExpensiveDay.day} (most expensive day)`,
+        '',
+        'Member Participation:',
+        `  • ${topConsumer?.fullName || 'Top member'} is consuming the most meals`,
+        `  • Ensure fair distribution of meal consumption`,
+        '',
+        'Payment Tracking:',
+        `  • ${topSpender.name} has contributed the most (৳${topSpender.amount.toFixed(2)})`,
+        `  • Encourage timely settlements from other members`,
+        '',
+        'Future Planning:',
+        `  • At current rate, expect ৳${((totalExpense / new Date().getDate()) * 30).toFixed(2)} for full month`,
+        `  • Plan grocery shopping based on consumption patterns`
       ];
       
-      insights.forEach(insight => {
-        checkPageBreak(10);
-        doc.text(insight, 20, yPos);
-        yPos += 7;
+      recommendations.forEach(rec => {
+        checkPage(8);
+        doc.text(rec, margin, yPos);
+        yPos += 6;
       });
       
-      // ===== FOOTER =====
+      // === ADD FOOTER TO ALL PAGES ===
       const totalPages = doc.internal.pages.length - 1;
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
         doc.setFontSize(8);
         doc.setTextColor(128, 128, 128);
+        doc.setFont(undefined, 'italic');
+        
+        // Footer line
+        doc.setDrawColor(200, 200, 200);
+        doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
+        
+        // Footer text
         doc.text(
-          `Page ${i} of ${totalPages} | Generated by MealON | ${mess.name}`,
+          `${mess.name} | Mess Code: ${mess.mess_code} | ${monthYear}`,
           pageWidth / 2,
           pageHeight - 10,
           { align: 'center' }
         );
+        doc.text(
+          `Page ${i} of ${totalPages}`,
+          pageWidth - margin,
+          pageHeight - 10,
+          { align: 'right' }
+        );
+        doc.text(
+          'Generated by MealON',
+          margin,
+          pageHeight - 10
+        );
       }
       
-      // Save
-      doc.save(`${mess.name}_Comprehensive_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+      // === SAVE ===
+      const filename = `${mess.name.replace(/\s+/g, '_')}_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(filename);
       
       return true;
     } catch (error) {
       console.error('PDF export error:', error);
-      alert('Error exporting PDF: ' + error.message);
+      alert('Error generating PDF: ' + error.message);
       return false;
     }
   };
@@ -718,14 +779,14 @@ const Reports = ({ darkMode, t, mess, member }) => {
         </div>
       )}
 
-      {/* Export Button */}
+      {/* Export Button - Updated to use the new ultimate PDF function */}
       <div className="flex justify-center">
         <button
-          onClick={exportComprehensivePDF}
+          onClick={exportUltimatePDF}
           className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white px-8 py-3 rounded-lg transition shadow-lg"
         >
           <Download className="w-5 h-5" />
-          Export Comprehensive PDF Report
+          Export Ultimate PDF Report
         </button>
       </div>
     </div>
