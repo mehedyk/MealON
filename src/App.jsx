@@ -1,21 +1,18 @@
 // ============================================
-// FILE: src/App.jsx - WITH LOADING TIMEOUT
+// App.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
 import { translations } from './translations';
 
-import DebugPanel from './components/DebugPanel';
 // Auth Components
 import AuthPage from './components/Auth/AuthPage';
 import MessSetup from './components/Auth/MessSetup';
 
-
-// Main Components
-import Header from './components/Header';
-import Sidebar from './components/Sidebar';
+// Layout Components
+import MobileHeader from './components/Mobile/MobileHeader';
+import MobileNav from './components/Mobile/MobileNav';
 import Footer from './components/Footer';
-import Contact from './components/Contact';
 
 // Page Components
 import Dashboard from './components/Dashboard';
@@ -27,6 +24,7 @@ import Rules from './components/Rules';
 import Voting from './components/Voting';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
+import Contact from './components/Contact';
 
 const App = () => {
   const { user, member, mess, loading } = useAuth();
@@ -41,7 +39,6 @@ const App = () => {
   });
   
   const [currentPage, setCurrentPage] = useState('dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
 
   const t = translations[language];
@@ -60,15 +57,14 @@ const App = () => {
     if (loading) {
       const timer = setTimeout(() => {
         setLoadingTimeout(true);
-      }, 5000); // 5 second timeout
-
+      }, 5000);
       return () => clearTimeout(timer);
     } else {
       setLoadingTimeout(false);
     }
   }, [loading]);
 
-  // Show loading state with timeout
+  // Show loading state
   if (loading && !loadingTimeout) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
@@ -89,11 +85,11 @@ const App = () => {
             Connection Error
           </h2>
           <p className={`mb-6 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>
-            Unable to connect to the server. Please check your internet connection.
+            Unable to connect. Please check your internet.
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition"
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
           >
             Retry
           </button>
@@ -102,7 +98,7 @@ const App = () => {
     );
   }
 
-  // Not authenticated - show auth page
+  // Not authenticated
   if (!user) {
     return (
       <AuthPage 
@@ -115,7 +111,7 @@ const App = () => {
     );
   }
 
-  // Authenticated but no mess - show mess setup
+  // No mess
   if (!mess || !member) {
     return (
       <MessSetup
@@ -128,71 +124,58 @@ const App = () => {
     );
   }
 
-  // Full app with mess
+  // Render current page
   const renderPage = () => {
-    const props = {
-      darkMode,
-      language,
-      t,
-      mess,
-      member
-    };
-
+    const props = { darkMode, language, t, mess, member };
+    
     switch (currentPage) {
-      case 'dashboard':
-        return <Dashboard {...props} />;
-      case 'members':
-        return <Members {...props} />;
-      case 'meals':
-        return <Meals {...props} />;
-      case 'expenses':
-        return <Expenses {...props} />;
-      case 'menu':
-        return <Menu {...props} />;
-      case 'rules':
-        return <Rules {...props} />;
-      case 'voting':
-        return <Voting {...props} />;
-      case 'reports':
-        return <Reports {...props} />;
-      case 'contact':
-        return <Contact {...props} />;
-      case 'settings':
-        return <Settings {...props} darkMode={darkMode} setDarkMode={setDarkMode} language={language} setLanguage={setLanguage} />;
-      default:
-        return <Dashboard {...props} />;
+      case 'dashboard': return <Dashboard {...props} />;
+      case 'members': return <Members {...props} />;
+      case 'meals': return <Meals {...props} />;
+      case 'expenses': return <Expenses {...props} />;
+      case 'menu': return <Menu {...props} />;
+      case 'rules': return <Rules {...props} />;
+      case 'voting': return <Voting {...props} />;
+      case 'reports': return <Reports {...props} />;
+      case 'contact': return <Contact {...props} />;
+      case 'settings': return <Settings {...props} darkMode={darkMode} setDarkMode={setDarkMode} language={language} setLanguage={setLanguage} />;
+      default: return <Dashboard {...props} />;
     }
   };
 
+  // Mobile-first layout
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900 text-white' : 'bg-slate-50 text-gray-800'}`}>
-      <Header
+      {/* Mobile Header */}
+      <MobileHeader
         darkMode={darkMode}
         setDarkMode={setDarkMode}
         language={language}
         setLanguage={setLanguage}
-        sidebarOpen={sidebarOpen}
-        setSidebarOpen={setSidebarOpen}
         mess={mess}
         member={member}
         t={t}
       />
       
-      <div className="flex">
-        <Sidebar
-          darkMode={darkMode}
-          sidebarOpen={sidebarOpen}
-          currentPage={currentPage}
-          setCurrentPage={setCurrentPage}
-          t={t}
-        />
-        
-        <main className="flex-1 p-6 pb-20">
+      {/* Main Content */}
+      <main className="pb-24 px-4 pt-20 max-w-7xl mx-auto">
+        <div className="animate-fadeIn">
           {renderPage()}
-        </main>
-      </div>
+        </div>
+      </main>
 
-      <Footer darkMode={darkMode} t={t} />
+      {/* Mobile Bottom Navigation */}
+      <MobileNav
+        darkMode={darkMode}
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        t={t}
+      />
+
+      {/* Footer - Hidden on Mobile */}
+      <div className="hidden md:block">
+        <Footer darkMode={darkMode} t={t} />
+      </div>
     </div>
   );
 };
