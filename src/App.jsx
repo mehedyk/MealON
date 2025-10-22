@@ -39,7 +39,6 @@ const App = () => {
   });
   
   const [currentPage, setCurrentPage] = useState('dashboard');
-  const [loadingTimeout, setLoadingTimeout] = useState(false);
 
   const t = translations[language];
 
@@ -52,47 +51,13 @@ const App = () => {
     localStorage.setItem('language', language);
   }, [language]);
 
-  // Timeout for loading screen
-  useEffect(() => {
-    if (loading) {
-      const timer = setTimeout(() => {
-        setLoadingTimeout(true);
-      }, 5000);
-      return () => clearTimeout(timer);
-    } else {
-      setLoadingTimeout(false);
-    }
-  }, [loading]);
-
   // Show loading state
-  if (loading && !loadingTimeout) {
+  if (loading) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <div className={`text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>Loading...</div>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error if loading times out
-  if (loadingTimeout) {
-    return (
-      <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
-        <div className={`text-center p-8 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-lg max-w-md`}>
-          <h2 className={`text-2xl font-bold mb-4 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
-            Connection Error
-          </h2>
-          <p className={`mb-6 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>
-            Unable to connect. Please check your internet.
-          </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
-          >
-            Retry
-          </button>
         </div>
       </div>
     );
