@@ -1,6 +1,5 @@
 // ============================================
-// BULLETPROOF AuthContext - Fixes ALL reload/tab/PDF issues
-// Replace src/context/AuthContext.jsx
+// AuthContext.jsx
 // ============================================
 import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
@@ -19,12 +18,11 @@ export const AuthProvider = ({ children }) => {
   const [mess, setMess] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [sessionChecked, setSessionChecked] = useState(false);
   
   // Use refs to prevent multiple simultaneous loads
   const loadingRef = useRef(false);
   const mountedRef = useRef(true);
-  const sessionTimeoutRef = useRef(null);
+  const lastLoadTime = useRef(0);
 
   // Memoized load function with duplicate prevention
   const loadMemberData = useCallback(async (userId, force = false) => {
@@ -32,7 +30,15 @@ export const AuthProvider = ({ children }) => {
       return;
     }
 
+    // Prevent too frequent reloads (min 5 seconds between loads)
+    const now = Date.now();
+    if (!force && now - lastLoadTime.current < 5000) {
+      console.log('⏭️ Skipping reload - too soon');
+      return;
+    }
+
     loadingRef.current = true;
+    lastLoadTime.current = now;
 
     try {
       console.log('🔄 Loading member data for:', userId);
@@ -88,10 +94,10 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  // Session validation with auto-recovery
-  const validateSession = useCallback(async () => {
+  // Session validation WITHOUT loading state
+  const validateSessionSilently = useCallback(async () => {
     try {
-      console.log('🔍 Validating session...');
+      console.log('🔍 Silently validating session...');
       
       const { data: { session }, error } = await supabase.auth.getSession();
       
@@ -107,8 +113,8 @@ export const AuthProvider = ({ children }) => {
 
       if (session?.user) {
         console.log('✅ Valid session');
-        if (mountedRef.current) {
-          setUser(session.user);
+        if (mountedRef.current && user?.id === session.user.id) {
+          // Same user, just refresh data silently
           await loadMemberData(session.user.id);
         }
         return true;
@@ -119,7 +125,7 @@ export const AuthProvider = ({ children }) => {
       console.error('❌ Validate error:', err);
       return false;
     }
-  }, [loadMemberData]);
+  }, [user, loadMemberData]);
 
   // Initialize auth
   useEffect(() => {
@@ -131,52 +137,42 @@ export const AuthProvider = ({ children }) => {
       isInitializing = true;
 
       try {
-        await validateSession();
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (session?.user && mountedRef.current) {
+          setUser(session.user);
+          await loadMemberData(session.user.id);
+        }
       } catch (err) {
         console.error('❌ Init error:', err);
       } finally {
         if (mountedRef.current) {
           setLoading(false);
-          setSessionChecked(true);
         }
         isInitializing = false;
       }
     };
 
-    // Handle visibility changes (tab switching, window focus)
+    // FIXED: Handle visibility changes WITHOUT setting loading state
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && user) {
-        console.log('👁️ Tab visible - validating session');
-        clearTimeout(sessionTimeoutRef.current);
-        sessionTimeoutRef.current = setTimeout(() => {
-          validateSession();
-        }, 1000);
+        console.log('👁️ Tab visible - silent refresh');
+        // Silent refresh without loading state
+        validateSessionSilently();
       }
     };
 
-    // Handle page focus
+    // FIXED: Handle page focus WITHOUT setting loading state
     const handleFocus = () => {
       if (user) {
-        console.log('🎯 Window focused - validating session');
-        clearTimeout(sessionTimeoutRef.current);
-        sessionTimeoutRef.current = setTimeout(() => {
-          validateSession();
-        }, 1000);
+        console.log('🎯 Window focused - silent refresh');
+        // Silent refresh without loading state
+        validateSessionSilently();
       }
-    };
-
-    // Prevent unload when downloading (for PDF downloads)
-    const handleBeforeUnload = (e) => {
-      // Don't prevent if actually navigating away
-      if (e.currentTarget.performance?.navigation?.type === 1) {
-        return;
-      }
-      // For downloads, don't do anything
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleFocus);
-    window.addEventListener('beforeunload', handleBeforeUnload);
 
     // Auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -209,18 +205,15 @@ export const AuthProvider = ({ children }) => {
 
     return () => {
       mountedRef.current = false;
-      clearTimeout(sessionTimeoutRef.current);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
       subscription.unsubscribe();
     };
-  }, [user, validateSession, loadMemberData]);
+  }, []); // Empty deps - only run once
 
   const signUp = async (email, password, userData) => {
     try {
       setError(null);
-      setLoading(true);
       
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -233,15 +226,12 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       setError(err.message);
       return { data: null, error: err.message };
-    } finally {
-      setLoading(false);
     }
   };
 
   const signIn = async (email, password) => {
     try {
       setError(null);
-      setLoading(true);
       
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
@@ -249,15 +239,12 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       setError(err.message);
       return { data: null, error: err.message };
-    } finally {
-      setLoading(false);
     }
   };
 
   const signOut = async () => {
     try {
       setError(null);
-      setLoading(true);
       
       // Clear state first
       setUser(null);
@@ -280,8 +267,6 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       console.error('❌ Sign out error:', err);
       return { error: err.message };
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -365,9 +350,7 @@ export const AuthProvider = ({ children }) => {
 
   const reloadMemberData = useCallback(async () => {
     if (user) {
-      setLoading(true);
       await loadMemberData(user.id, true);
-      setLoading(false);
     }
   }, [user, loadMemberData]);
 
@@ -377,7 +360,6 @@ export const AuthProvider = ({ children }) => {
     mess,
     loading,
     error,
-    sessionChecked,
     signUp,
     signIn,
     signOut,
