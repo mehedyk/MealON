@@ -1,5 +1,5 @@
 // ============================================
-// AuthContext.jsx
+// AuthContext
 // ============================================
 import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
@@ -19,30 +19,19 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  // Use refs to prevent multiple simultaneous loads
-  const loadingRef = useRef(false);
+  // Critical: Prevent multiple loads
+  const isLoadingData = useRef(false);
   const mountedRef = useRef(true);
-  const lastLoadTime = useRef(0);
 
-  // Memoized load function with duplicate prevention
-  const loadMemberData = useCallback(async (userId, force = false) => {
-    if (!userId || (!force && loadingRef.current)) {
+  // Load member data WITHOUT triggering loading state
+  const loadMemberData = useCallback(async (userId) => {
+    if (!userId || isLoadingData.current || !mountedRef.current) {
       return;
     }
 
-    // Prevent too frequent reloads (min 5 seconds between loads)
-    const now = Date.now();
-    if (!force && now - lastLoadTime.current < 5000) {
-      console.log('⏭️ Skipping reload - too soon');
-      return;
-    }
-
-    loadingRef.current = true;
-    lastLoadTime.current = now;
+    isLoadingData.current = true;
 
     try {
-      console.log('🔄 Loading member data for:', userId);
-      
       const { data: memberData, error: memberError } = await supabase
         .from('members')
         .select('*')
@@ -53,20 +42,18 @@ export const AuthProvider = ({ children }) => {
       if (!mountedRef.current) return;
 
       if (memberError && memberError.code !== 'PGRST116') {
-        console.error('❌ Member error:', memberError);
+        console.error('Member error:', memberError);
         setMember(null);
         setMess(null);
         return;
       }
       
       if (!memberData) {
-        console.log('⚠️ No member found');
         setMember(null);
         setMess(null);
         return;
       }
 
-      console.log('✅ Member found:', memberData.name);
       setMember(memberData);
 
       if (memberData.mess_id) {
@@ -79,137 +66,70 @@ export const AuthProvider = ({ children }) => {
         if (!mountedRef.current) return;
 
         if (!messError && messData) {
-          console.log('✅ Mess loaded:', messData.name);
           setMess(messData);
         }
       }
     } catch (err) {
-      console.error('❌ Load error:', err);
-      if (mountedRef.current) {
-        setMember(null);
-        setMess(null);
-      }
+      console.error('Load error:', err);
     } finally {
-      loadingRef.current = false;
+      isLoadingData.current = false;
     }
   }, []);
 
-  // Session validation WITHOUT loading state
-  const validateSessionSilently = useCallback(async () => {
-    try {
-      console.log('🔍 Silently validating session...');
-      
-      const { data: { session }, error } = await supabase.auth.getSession();
-      
-      if (error) {
-        console.error('❌ Session error:', error);
-        if (mountedRef.current) {
-          setUser(null);
-          setMember(null);
-          setMess(null);
-        }
-        return false;
-      }
-
-      if (session?.user) {
-        console.log('✅ Valid session');
-        if (mountedRef.current && user?.id === session.user.id) {
-          // Same user, just refresh data silently
-          await loadMemberData(session.user.id);
-        }
-        return true;
-      }
-
-      return false;
-    } catch (err) {
-      console.error('❌ Validate error:', err);
-      return false;
-    }
-  }, [user, loadMemberData]);
-
-  // Initialize auth
+  // Initialize auth ONCE
   useEffect(() => {
-    mountedRef.current = true;
-    let isInitializing = false;
+    let subscription;
 
     const initAuth = async () => {
-      if (isInitializing) return;
-      isInitializing = true;
-
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { data: { session } } = await supabase.auth.getSession();
         
         if (session?.user && mountedRef.current) {
           setUser(session.user);
           await loadMemberData(session.user.id);
         }
       } catch (err) {
-        console.error('❌ Init error:', err);
+        console.error('Init error:', err);
       } finally {
         if (mountedRef.current) {
           setLoading(false);
         }
-        isInitializing = false;
       }
     };
-
-    // FIXED: Handle visibility changes WITHOUT setting loading state
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && user) {
-        console.log('👁️ Tab visible - silent refresh');
-        // Silent refresh without loading state
-        validateSessionSilently();
-      }
-    };
-
-    // FIXED: Handle page focus WITHOUT setting loading state
-    const handleFocus = () => {
-      if (user) {
-        console.log('🎯 Window focused - silent refresh');
-        // Silent refresh without loading state
-        validateSessionSilently();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
 
     // Auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('🔔 Auth event:', event);
-        
-        if (!mountedRef.current) return;
+    const setupAuthListener = () => {
+      const { data: authData } = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          if (!mountedRef.current) return;
 
-        if (event === 'SIGNED_IN' && session?.user) {
-          console.log('✅ User signed in');
-          setUser(session.user);
-          setLoading(true);
-          await loadMemberData(session.user.id, true);
-          setLoading(false);
-        } else if (event === 'SIGNED_OUT') {
-          console.log('👋 User signed out');
-          setUser(null);
-          setMember(null);
-          setMess(null);
-        } else if (event === 'TOKEN_REFRESHED') {
-          console.log('🔄 Token refreshed');
-          if (session?.user) {
+          if (event === 'SIGNED_IN' && session?.user) {
+            setUser(session.user);
+            setLoading(true);
+            await loadMemberData(session.user.id);
+            setLoading(false);
+          } else if (event === 'SIGNED_OUT') {
+            setUser(null);
+            setMember(null);
+            setMess(null);
+          } else if (event === 'TOKEN_REFRESHED' && session?.user) {
             setUser(session.user);
           }
         }
-      }
-    );
+      );
+      subscription = authData.subscription;
+    };
 
     initAuth();
+    setupAuthListener();
 
     return () => {
       mountedRef.current = false;
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-      subscription.unsubscribe();
+      if (subscription) {
+        subscription.unsubscribe();
+      }
     };
-  }, []); // Empty deps - only run once
+  }, []); // CRITICAL: Empty deps - run ONCE only
 
   const signUp = async (email, password, userData) => {
     try {
@@ -246,26 +166,22 @@ export const AuthProvider = ({ children }) => {
     try {
       setError(null);
       
-      // Clear state first
       setUser(null);
       setMember(null);
       setMess(null);
       
-      // Clear storage
       localStorage.clear();
       sessionStorage.clear();
       
-      // Sign out from Supabase
       await supabase.auth.signOut();
       
-      // Force reload to clear any cached state
       setTimeout(() => {
         window.location.href = '/';
       }, 100);
       
       return { error: null };
     } catch (err) {
-      console.error('❌ Sign out error:', err);
+      console.error('Sign out error:', err);
       return { error: err.message };
     }
   };
@@ -294,7 +210,7 @@ export const AuthProvider = ({ children }) => {
         .limit(1);
 
       if (existingMembers && existingMembers.length > 0) {
-        await loadMemberData(user.id, true);
+        await loadMemberData(user.id);
         throw new Error('You already have a mess!');
       }
 
@@ -338,7 +254,7 @@ export const AuthProvider = ({ children }) => {
       if (error) throw error;
       
       if (data.already_member) {
-        await loadMemberData(user.id, true);
+        await loadMemberData(user.id);
       }
       
       return { data, error: null };
@@ -349,8 +265,8 @@ export const AuthProvider = ({ children }) => {
   };
 
   const reloadMemberData = useCallback(async () => {
-    if (user) {
-      await loadMemberData(user.id, true);
+    if (user && !isLoadingData.current) {
+      await loadMemberData(user.id);
     }
   }, [user, loadMemberData]);
 
