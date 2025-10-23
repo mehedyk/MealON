@@ -1,5 +1,5 @@
-// ============================================
-// App.jsx
+// ===========================================
+//src/App.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
@@ -51,27 +51,8 @@ const App = () => {
     localStorage.setItem('language', language);
   }, [language]);
 
-  // DEBUG: Log state changes
-  useEffect(() => {
-    console.log('🔍 APP STATE:', {
-      loading,
-      hasUser: !!user,
-      hasMember: !!member,
-      hasMess: !!mess,
-      timestamp: new Date().toISOString()
-    });
-  }, [loading, user, member, mess]);
-
-  // CRITICAL: Simple loading check with timeout fallback
+  // Show loading screen
   if (loading) {
-    // Auto-clear loading after 3 seconds (emergency fallback)
-    setTimeout(() => {
-      if (loading) {
-        console.error('⚠️ Loading stuck! Force reloading...');
-        window.location.reload();
-      }
-    }, 3000);
-
     return (
       <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
         <div className="text-center">
@@ -79,17 +60,13 @@ const App = () => {
           <div className={`text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>
             {t.loading || 'Loading...'}
           </div>
-          <div className="mt-4 text-sm opacity-50">
-            {loading ? 'Loading true' : 'Loading false'} | User: {user ? 'Yes' : 'No'}
-          </div>
         </div>
       </div>
     );
   }
 
-  // Not authenticated
+  // Not authenticated - show login
   if (!user) {
-    console.log('📝 Showing AuthPage');
     return (
       <AuthPage 
         darkMode={darkMode}
@@ -101,9 +78,8 @@ const App = () => {
     );
   }
 
-  // No mess
+  // Authenticated but no mess - show setup
   if (!mess || !member) {
-    console.log('🏠 Showing MessSetup');
     return (
       <MessSetup
         darkMode={darkMode}
@@ -129,14 +105,19 @@ const App = () => {
       case 'voting': return <Voting {...props} />;
       case 'reports': return <Reports {...props} />;
       case 'contact': return <Contact {...props} />;
-      case 'settings': return <Settings {...props} darkMode={darkMode} setDarkMode={setDarkMode} language={language} setLanguage={setLanguage} />;
+      case 'settings': 
+        return <Settings 
+          {...props} 
+          darkMode={darkMode} 
+          setDarkMode={setDarkMode} 
+          language={language} 
+          setLanguage={setLanguage} 
+        />;
       default: return <Dashboard {...props} />;
     }
   };
 
-  console.log('✅ Rendering main app');
-
-  // Mobile-first layout
+  // Main app interface
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900 text-white' : 'bg-slate-50 text-gray-800'}`}>
       {/* Mobile Header */}
