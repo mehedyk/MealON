@@ -1,5 +1,5 @@
 // ============================================
-// AuthContext
+//src/context/AuthContext.jsx
 // ============================================
 import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 import { supabase } from '../lib/supabase';
@@ -19,99 +19,163 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  const hasInitialized = useRef(false);
-  const isLoading = useRef(false);
+  const initialized = useRef(false);
 
-  // Load member data - NEVER changes loading state
-  const loadMemberDataSilently = async (userId) => {
-    if (!userId || isLoading.current) return;
-    
-    isLoading.current = true;
+  useEffect(() => {
+    // Prevent multiple initializations
+    if (initialized.current) return;
+    initialized.current = true;
 
-    try {
-      const { data: memberData } = await supabase
-        .from('members')
-        .select('*')
-        .eq('user_id', userId)
-        .limit(1)
-        .maybeSingle();
+    let mounted = true;
+    let authSubscription = null;
 
-      if (memberData) {
+    const init = async () => {
+      try {
+        console.log('🚀 Initializing auth...');
+        
+        // Get current session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('Session error:', sessionError);
+          if (mounted) setLoading(false);
+          return;
+        }
+
+        if (!session?.user) {
+          console.log('❌ No session found');
+          if (mounted) {
+            setUser(null);
+            setMember(null);
+            setMess(null);
+            setLoading(false);
+          }
+          return;
+        }
+
+        console.log('✅ Session found for:', session.user.email);
+        
+        if (mounted) {
+          setUser(session.user);
+        }
+
+        // Load member data
+        const { data: memberData, error: memberError } = await supabase
+          .from('members')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+
+        if (!mounted) return;
+
+        if (memberError) {
+          console.error('Member error:', memberError);
+          setLoading(false);
+          return;
+        }
+
+        if (!memberData) {
+          console.log('⚠️ No member found - showing setup');
+          setLoading(false);
+          return;
+        }
+
+        console.log('✅ Member found:', memberData.name);
         setMember(memberData);
 
+        // Load mess data
         if (memberData.mess_id) {
-          const { data: messData } = await supabase
+          const { data: messData, error: messError } = await supabase
             .from('mess')
             .select('*')
             .eq('id', memberData.mess_id)
             .single();
 
-          if (messData) {
+          if (!mounted) return;
+
+          if (messError) {
+            console.error('Mess error:', messError);
+          } else if (messData) {
+            console.log('✅ Mess found:', messData.name);
             setMess(messData);
           }
         }
-      }
-    } catch (err) {
-      console.error('Silent load error:', err);
-    } finally {
-      isLoading.current = false;
-    }
-  };
 
-  // Initialize ONCE
-  useEffect(() => {
-    if (hasInitialized.current) return;
-    hasInitialized.current = true;
-
-    let subscription;
-
-    const init = async () => {
-      try {
-        // Get current session
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (session?.user) {
-          setUser(session.user);
-          await loadMemberDataSilently(session.user.id);
-        }
-      } catch (err) {
-        console.error('Init error:', err);
-      } finally {
-        // CRITICAL: Always set loading to false
         setLoading(false);
-      }
-    };
+        console.log('✅ Auth initialization complete');
 
-    // Listen to auth changes
-    const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('Auth event:', event);
-
-        if (event === 'SIGNED_IN' && session?.user) {
-          setUser(session.user);
-          setLoading(true);
-          await loadMemberDataSilently(session.user.id);
+      } catch (err) {
+        console.error('❌ Init error:', err);
+        if (mounted) {
           setLoading(false);
-        } else if (event === 'SIGNED_OUT') {
-          setUser(null);
-          setMember(null);
-          setMess(null);
-        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-          // Silent refresh - don't change loading state
-          setUser(session.user);
         }
       }
-    );
+    };
 
-    subscription = authSubscription;
+    // Set up auth listener
+    const setupListener = () => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          console.log('🔔 Auth event:', event);
+
+          if (!mounted) return;
+
+          if (event === 'SIGNED_IN' && session?.user) {
+            console.log('✅ User signed in');
+            setLoading(true);
+            setUser(session.user);
+
+            // Load member data
+            const { data: memberData } = await supabase
+              .from('members')
+              .select('*')
+              .eq('user_id', session.user.id)
+              .maybeSingle();
+
+            if (mounted && memberData) {
+              setMember(memberData);
+
+              if (memberData.mess_id) {
+                const { data: messData } = await supabase
+                  .from('mess')
+                  .select('*')
+                  .eq('id', memberData.mess_id)
+                  .single();
+
+                if (mounted && messData) {
+                  setMess(messData);
+                }
+              }
+            }
+
+            if (mounted) setLoading(false);
+
+          } else if (event === 'SIGNED_OUT') {
+            console.log('👋 User signed out');
+            setUser(null);
+            setMember(null);
+            setMess(null);
+          } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+            console.log('🔄 Token refreshed');
+            setUser(session.user);
+          }
+        }
+      );
+
+      authSubscription = subscription;
+    };
+
     init();
+    setupListener();
 
+    // Cleanup
     return () => {
-      if (subscription) {
-        subscription.unsubscribe();
+      mounted = false;
+      if (authSubscription) {
+        authSubscription.unsubscribe();
       }
     };
-  }, []); // CRITICAL: Empty array - runs ONCE
+  }, []); // CRITICAL: Empty array - run ONCE
 
   const signUp = async (email, password, userData) => {
     try {
@@ -132,7 +196,10 @@ export const AuthProvider = ({ children }) => {
   const signIn = async (email, password) => {
     try {
       setError(null);
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ 
+        email, 
+        password 
+      });
       if (error) throw error;
       return { data, error: null };
     } catch (err) {
@@ -147,9 +214,15 @@ export const AuthProvider = ({ children }) => {
       setMember(null);
       setMess(null);
       await supabase.auth.signOut();
-      window.location.href = '/';
+      
+      // Force reload to clear all state
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 100);
+      
       return { error: null };
     } catch (err) {
+      console.error('Sign out error:', err);
       return { error: err.message };
     }
   };
@@ -170,16 +243,6 @@ export const AuthProvider = ({ children }) => {
     try {
       setError(null);
       if (!user) throw new Error('Not authenticated');
-
-      const { data: existingMembers } = await supabase
-        .from('members')
-        .select('id')
-        .eq('user_id', user.id)
-        .limit(1);
-
-      if (existingMembers?.length > 0) {
-        throw new Error('You already have a mess!');
-      }
 
       const memberName = userName || user.user_metadata?.name || user.email?.split('@')[0] || 'User';
       
@@ -219,10 +282,6 @@ export const AuthProvider = ({ children }) => {
       });
 
       if (error) throw error;
-      
-      if (data.already_member) {
-        await loadMemberDataSilently(user.id);
-      }
       
       return { data, error: null };
     } catch (err) {
