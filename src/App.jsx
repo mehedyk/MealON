@@ -51,14 +51,36 @@ const App = () => {
     localStorage.setItem('language', language);
   }, [language]);
 
-  // SIMPLE loading check - NO timeout logic
+  // DEBUG: Log state changes
+  useEffect(() => {
+    console.log('🔍 APP STATE:', {
+      loading,
+      hasUser: !!user,
+      hasMember: !!member,
+      hasMess: !!mess,
+      timestamp: new Date().toISOString()
+    });
+  }, [loading, user, member, mess]);
+
+  // CRITICAL: Simple loading check with timeout fallback
   if (loading) {
+    // Auto-clear loading after 3 seconds (emergency fallback)
+    setTimeout(() => {
+      if (loading) {
+        console.error('⚠️ Loading stuck! Force reloading...');
+        window.location.reload();
+      }
+    }, 3000);
+
     return (
       <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <div className={`text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>
             {t.loading || 'Loading...'}
+          </div>
+          <div className="mt-4 text-sm opacity-50">
+            {loading ? 'Loading true' : 'Loading false'} | User: {user ? 'Yes' : 'No'}
           </div>
         </div>
       </div>
@@ -67,6 +89,7 @@ const App = () => {
 
   // Not authenticated
   if (!user) {
+    console.log('📝 Showing AuthPage');
     return (
       <AuthPage 
         darkMode={darkMode}
@@ -80,6 +103,7 @@ const App = () => {
 
   // No mess
   if (!mess || !member) {
+    console.log('🏠 Showing MessSetup');
     return (
       <MessSetup
         darkMode={darkMode}
@@ -109,6 +133,8 @@ const App = () => {
       default: return <Dashboard {...props} />;
     }
   };
+
+  console.log('✅ Rendering main app');
 
   // Mobile-first layout
   return (
