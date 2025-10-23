@@ -1,7 +1,7 @@
 // ============================================
 // AuthContext
 // ============================================
-import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext({});
@@ -19,128 +19,108 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  // Critical: Prevent multiple loads
-  const isLoadingData = useRef(false);
-  const mountedRef = useRef(true);
+  const hasInitialized = useRef(false);
+  const isLoading = useRef(false);
 
-  // Load member data WITHOUT triggering loading state
-  const loadMemberData = useCallback(async (userId) => {
-    if (!userId || isLoadingData.current || !mountedRef.current) {
-      return;
-    }
-
-    isLoadingData.current = true;
+  // Load member data - NEVER changes loading state
+  const loadMemberDataSilently = async (userId) => {
+    if (!userId || isLoading.current) return;
+    
+    isLoading.current = true;
 
     try {
-      const { data: memberData, error: memberError } = await supabase
+      const { data: memberData } = await supabase
         .from('members')
         .select('*')
         .eq('user_id', userId)
         .limit(1)
         .maybeSingle();
 
-      if (!mountedRef.current) return;
+      if (memberData) {
+        setMember(memberData);
 
-      if (memberError && memberError.code !== 'PGRST116') {
-        console.error('Member error:', memberError);
-        setMember(null);
-        setMess(null);
-        return;
-      }
-      
-      if (!memberData) {
-        setMember(null);
-        setMess(null);
-        return;
-      }
+        if (memberData.mess_id) {
+          const { data: messData } = await supabase
+            .from('mess')
+            .select('*')
+            .eq('id', memberData.mess_id)
+            .single();
 
-      setMember(memberData);
-
-      if (memberData.mess_id) {
-        const { data: messData, error: messError } = await supabase
-          .from('mess')
-          .select('*')
-          .eq('id', memberData.mess_id)
-          .single();
-
-        if (!mountedRef.current) return;
-
-        if (!messError && messData) {
-          setMess(messData);
+          if (messData) {
+            setMess(messData);
+          }
         }
       }
     } catch (err) {
-      console.error('Load error:', err);
+      console.error('Silent load error:', err);
     } finally {
-      isLoadingData.current = false;
+      isLoading.current = false;
     }
-  }, []);
+  };
 
-  // Initialize auth ONCE
+  // Initialize ONCE
   useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
     let subscription;
 
-    const initAuth = async () => {
+    const init = async () => {
       try {
+        // Get current session
         const { data: { session } } = await supabase.auth.getSession();
         
-        if (session?.user && mountedRef.current) {
+        if (session?.user) {
           setUser(session.user);
-          await loadMemberData(session.user.id);
+          await loadMemberDataSilently(session.user.id);
         }
       } catch (err) {
         console.error('Init error:', err);
       } finally {
-        if (mountedRef.current) {
-          setLoading(false);
-        }
+        // CRITICAL: Always set loading to false
+        setLoading(false);
       }
     };
 
-    // Auth state listener
-    const setupAuthListener = () => {
-      const { data: authData } = supabase.auth.onAuthStateChange(
-        async (event, session) => {
-          if (!mountedRef.current) return;
+    // Listen to auth changes
+    const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth event:', event);
 
-          if (event === 'SIGNED_IN' && session?.user) {
-            setUser(session.user);
-            setLoading(true);
-            await loadMemberData(session.user.id);
-            setLoading(false);
-          } else if (event === 'SIGNED_OUT') {
-            setUser(null);
-            setMember(null);
-            setMess(null);
-          } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-            setUser(session.user);
-          }
+        if (event === 'SIGNED_IN' && session?.user) {
+          setUser(session.user);
+          setLoading(true);
+          await loadMemberDataSilently(session.user.id);
+          setLoading(false);
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setMember(null);
+          setMess(null);
+        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          // Silent refresh - don't change loading state
+          setUser(session.user);
         }
-      );
-      subscription = authData.subscription;
-    };
+      }
+    );
 
-    initAuth();
-    setupAuthListener();
+    subscription = authSubscription;
+    init();
 
     return () => {
-      mountedRef.current = false;
       if (subscription) {
         subscription.unsubscribe();
       }
     };
-  }, []); // CRITICAL: Empty deps - run ONCE only
+  }, []); // CRITICAL: Empty array - runs ONCE
 
   const signUp = async (email, password, userData) => {
     try {
       setError(null);
-      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: { data: userData }
       });
-      
       if (error) throw error;
       return { data, error: null };
     } catch (err) {
@@ -152,7 +132,6 @@ export const AuthProvider = ({ children }) => {
   const signIn = async (email, password) => {
     try {
       setError(null);
-      
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       return { data, error: null };
@@ -164,24 +143,13 @@ export const AuthProvider = ({ children }) => {
 
   const signOut = async () => {
     try {
-      setError(null);
-      
       setUser(null);
       setMember(null);
       setMess(null);
-      
-      localStorage.clear();
-      sessionStorage.clear();
-      
       await supabase.auth.signOut();
-      
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 100);
-      
+      window.location.href = '/';
       return { error: null };
     } catch (err) {
-      console.error('Sign out error:', err);
       return { error: err.message };
     }
   };
@@ -205,12 +173,11 @@ export const AuthProvider = ({ children }) => {
 
       const { data: existingMembers } = await supabase
         .from('members')
-        .select('id, mess_id')
+        .select('id')
         .eq('user_id', user.id)
         .limit(1);
 
-      if (existingMembers && existingMembers.length > 0) {
-        await loadMemberData(user.id);
+      if (existingMembers?.length > 0) {
         throw new Error('You already have a mess!');
       }
 
@@ -254,7 +221,7 @@ export const AuthProvider = ({ children }) => {
       if (error) throw error;
       
       if (data.already_member) {
-        await loadMemberData(user.id);
+        await loadMemberDataSilently(user.id);
       }
       
       return { data, error: null };
@@ -263,12 +230,6 @@ export const AuthProvider = ({ children }) => {
       return { data: null, error: err.message };
     }
   };
-
-  const reloadMemberData = useCallback(async () => {
-    if (user && !isLoadingData.current) {
-      await loadMemberData(user.id);
-    }
-  }, [user, loadMemberData]);
 
   const value = {
     user,
@@ -281,8 +242,7 @@ export const AuthProvider = ({ children }) => {
     signOut,
     resetPassword,
     createMess,
-    joinMess,
-    reloadMemberData
+    joinMess
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
