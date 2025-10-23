@@ -51,13 +51,15 @@ const App = () => {
     localStorage.setItem('language', language);
   }, [language]);
 
-  // Show loading state
+  // SIMPLE loading check - NO timeout logic
   if (loading) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <div className={`text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>Loading...</div>
+          <div className={`text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>
+            {t.loading || 'Loading...'}
+          </div>
         </div>
       </div>
     );
