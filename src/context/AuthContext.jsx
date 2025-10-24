@@ -13,40 +13,54 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
+  // CRITICAL: Check cache BEFORE setting initial loading state
+  const getInitialLoadingState = () => {
+    try {
+      const cachedMess = localStorage.getItem('mess_cache');
+      const cachedMember = localStorage.getItem('member_cache');
+      
+      // If we have cache, start with loading = false
+      if (cachedMess && cachedMember) {
+        console.log('📦 Cache found - starting with loading=false');
+        return false;
+      }
+    } catch (err) {
+      console.error('Cache check error:', err);
+    }
+    return true; // No cache, need to load
+  };
+
   const [user, setUser] = useState(null);
-  const [member, setMember] = useState(null);
-  const [mess, setMess] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [member, setMember] = useState(() => {
+    try {
+      const cached = localStorage.getItem('member_cache');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [mess, setMess] = useState(() => {
+    try {
+      const cached = localStorage.getItem('mess_cache');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(getInitialLoadingState());
   const [error, setError] = useState(null);
   
   const initialized = useRef(false);
   const loadingTimeout = useRef(null);
   const lastVisibilityChange = useRef(Date.now());
 
-  // Try to restore state from localStorage immediately
-  useEffect(() => {
-    try {
-      const cachedMess = localStorage.getItem('mess_cache');
-      const cachedMember = localStorage.getItem('member_cache');
-      
-      if (cachedMess && cachedMember) {
-        console.log('📦 Restoring from cache');
-        setMess(JSON.parse(cachedMess));
-        setMember(JSON.parse(cachedMember));
-        // Don't stop loading - still need to verify auth
-      }
-    } catch (err) {
-      console.error('Cache restore error:', err);
-    }
-  }, []);
-
-  // Safety: Force stop loading after 10 seconds
+  // Safety: Force stop loading after 5 seconds
   useEffect(() => {
     if (loading) {
       loadingTimeout.current = setTimeout(() => {
-        console.warn('⚠️ Loading timeout - forcing stop');
+        console.warn('⚠️ Loading timeout (5s) - forcing stop');
         setLoading(false);
-      }, 10000);
+      }, 5000); // Reduced from 10 seconds
     }
 
     return () => {
@@ -56,24 +70,30 @@ export const AuthProvider = ({ children }) => {
     };
   }, [loading]);
 
-  // CRITICAL: Handle tab visibility changes SMARTLY
+  // CRITICAL: Handle tab visibility changes AGGRESSIVELY
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const timeSinceLastChange = Date.now() - lastVisibilityChange.current;
         
         console.log('🔄 Tab became visible after', timeSinceLastChange, 'ms');
+        console.log('Current state:', { user: !!user, member: !!member, mess: !!mess, loading });
         
-        // If we're stuck loading when tab becomes visible, force stop
-        if (loading && timeSinceLastChange > 1000) {
-          console.warn('⚠️ Was loading when tab became visible - forcing stop');
+        // CRITICAL: If loading when tab becomes visible, FORCE STOP immediately
+        if (loading) {
+          console.warn('⚠️ FORCING LOADING TO STOP - tab became visible');
           setLoading(false);
         }
         
-        // If we have user but no member/mess after returning, reload page
-        if (user && (!member || !mess) && timeSinceLastChange > 2000) {
-          console.log('🚨 User exists but no member/mess - reloading page');
-          setTimeout(() => window.location.reload(), 100);
+        // If we have cache but no user, try to restore auth silently
+        if (!user && member && mess && timeSinceLastChange > 1000) {
+          console.log('🔄 Attempting silent auth restore...');
+          supabase.auth.getSession().then(({ data: { session } }) => {
+            if (session?.user) {
+              console.log('✅ Auth restored silently');
+              setUser(session.user);
+            }
+          });
         }
       }
       
@@ -81,9 +101,11 @@ export const AuthProvider = ({ children }) => {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
     
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
     };
   }, [user, member, mess, loading]);
 
@@ -99,6 +121,13 @@ export const AuthProvider = ({ children }) => {
       try {
         console.log('🚀 Initializing auth...');
         
+        // Check if we have cache - if yes, don't show loading spinner
+        const hasCachedData = member && mess;
+        
+        if (!hasCachedData) {
+          setLoading(true);
+        }
+        
         // Clear loading timeout
         if (loadingTimeout.current) {
           clearTimeout(loadingTimeout.current);
@@ -109,6 +138,14 @@ export const AuthProvider = ({ children }) => {
         
         if (sessionError) {
           console.error('Session error:', sessionError);
+          
+          // If we have cached data and it's a network error, use cache
+          if (hasCachedData && (sessionError.message.includes('Failed to fetch') || sessionError.message.includes('NetworkError'))) {
+            console.log('📦 Using cached data due to network error');
+            setLoading(false);
+            return;
+          }
+          
           if (mounted) {
             setLoading(false);
             setError(sessionError.message);
@@ -118,6 +155,14 @@ export const AuthProvider = ({ children }) => {
 
         if (!session?.user) {
           console.log('❌ No session found');
+          
+          // If we have cache but no session, keep the cached data
+          if (hasCachedData) {
+            console.log('📦 Keeping cached data despite no session');
+            setLoading(false);
+            return;
+          }
+          
           if (mounted) {
             setUser(null);
             setMember(null);
