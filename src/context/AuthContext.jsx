@@ -1,5 +1,5 @@
 // ============================================
-// src/context/AuthContext.jsx - COMPLETE FIXED VERSION
+// src/context/AuthContext.jsx
 // ============================================
 import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 import { supabase } from '../lib/supabase';
@@ -13,54 +13,57 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
-  // CRITICAL: Check cache BEFORE setting initial loading state
-  const getInitialLoadingState = () => {
-    try {
-      const cachedMess = localStorage.getItem('mess_cache');
-      const cachedMember = localStorage.getItem('member_cache');
-      
-      // If we have cache, start with loading = false
-      if (cachedMess && cachedMember) {
-        console.log('📦 Cache found - starting with loading=false');
-        return false;
-      }
-    } catch (err) {
-      console.error('Cache check error:', err);
-    }
-    return true; // No cache, need to load
-  };
-
+  // Initialize from cache immediately - NO loading state
   const [user, setUser] = useState(null);
   const [member, setMember] = useState(() => {
     try {
       const cached = localStorage.getItem('member_cache');
-      return cached ? JSON.parse(cached) : null;
-    } catch {
-      return null;
+      if (cached) {
+        console.log('📦 Loading member from cache');
+        return JSON.parse(cached);
+      }
+    } catch (err) {
+      console.error('Cache read error:', err);
     }
+    return null;
   });
+  
   const [mess, setMess] = useState(() => {
     try {
       const cached = localStorage.getItem('mess_cache');
-      return cached ? JSON.parse(cached) : null;
-    } catch {
-      return null;
+      if (cached) {
+        console.log('📦 Loading mess from cache');
+        return JSON.parse(cached);
+      }
+    } catch (err) {
+      console.error('Cache read error:', err);
     }
+    return null;
   });
-  const [loading, setLoading] = useState(getInitialLoadingState());
+  
+  // Only show loading if NO cache exists
+  const [loading, setLoading] = useState(() => {
+    const hasCachedMember = localStorage.getItem('member_cache');
+    const hasCachedMess = localStorage.getItem('mess_cache');
+    const shouldLoad = !hasCachedMember || !hasCachedMess;
+    console.log('Initial loading state:', shouldLoad);
+    return shouldLoad;
+  });
+  
   const [error, setError] = useState(null);
   
   const initialized = useRef(false);
   const loadingTimeout = useRef(null);
   const lastVisibilityChange = useRef(Date.now());
 
-  // Safety: Force stop loading after 5 seconds
+  // CRITICAL: Auto-stop loading after 3 seconds
   useEffect(() => {
     if (loading) {
+      console.log('⏰ Setting 3-second loading timeout');
       loadingTimeout.current = setTimeout(() => {
-        console.warn('⚠️ Loading timeout (5s) - forcing stop');
+        console.warn('⚠️ FORCING LOADING TO STOP (3s timeout)');
         setLoading(false);
-      }, 5000); // Reduced from 10 seconds
+      }, 3000);
     }
 
     return () => {
@@ -70,30 +73,37 @@ export const AuthProvider = ({ children }) => {
     };
   }, [loading]);
 
-  // CRITICAL: Handle tab visibility changes AGGRESSIVELY
+  // CRITICAL: Handle tab visibility - FORCE STOP loading immediately
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const timeSinceLastChange = Date.now() - lastVisibilityChange.current;
         
-        console.log('🔄 Tab became visible after', timeSinceLastChange, 'ms');
-        console.log('Current state:', { user: !!user, member: !!member, mess: !!mess, loading });
+        console.log('👁️ Tab visible after', timeSinceLastChange, 'ms');
+        console.log('State:', { loading, hasUser: !!user, hasMember: !!member, hasMess: !!mess });
         
-        // CRITICAL: If loading when tab becomes visible, FORCE STOP immediately
+        // CRITICAL: If loading when tab visible, STOP IT
         if (loading) {
-          console.warn('⚠️ FORCING LOADING TO STOP - tab became visible');
+          console.warn('🛑 FORCING LOADING OFF - tab became visible');
           setLoading(false);
         }
         
-        // If we have cache but no user, try to restore auth silently
-        if (!user && member && mess && timeSinceLastChange > 1000) {
-          console.log('🔄 Attempting silent auth restore...');
-          supabase.auth.getSession().then(({ data: { session } }) => {
-            if (session?.user) {
-              console.log('✅ Auth restored silently');
-              setUser(session.user);
-            }
-          });
+        // If we have cache data, ensure loading is off
+        if (member && mess) {
+          console.log('✅ Have cache data, ensuring loading is OFF');
+          setLoading(false);
+          
+          // Try to restore user session silently in background
+          if (!user) {
+            supabase.auth.getSession().then(({ data: { session } }) => {
+              if (session?.user) {
+                console.log('✅ User session restored silently');
+                setUser(session.user);
+              }
+            }).catch(err => {
+              console.log('Silent auth restore failed (non-critical):', err.message);
+            });
+          }
         }
       }
       
@@ -107,10 +117,10 @@ export const AuthProvider = ({ children }) => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
     };
-  }, [user, member, mess, loading]);
+  }, [loading, user, member, mess]);
 
+  // Initialize auth - runs ONCE
   useEffect(() => {
-    // Prevent multiple initializations
     if (initialized.current) return;
     initialized.current = true;
 
@@ -119,153 +129,119 @@ export const AuthProvider = ({ children }) => {
 
     const init = async () => {
       try {
-        console.log('🚀 Initializing auth...');
+        console.log('🚀 Starting auth initialization');
         
-        // Check if we have cache - if yes, don't show loading spinner
+        // If we have cache, we're already good - just verify auth silently
         const hasCachedData = member && mess;
         
-        if (!hasCachedData) {
-          setLoading(true);
+        if (hasCachedData) {
+          console.log('📦 Have cached data - skipping loading state');
+          setLoading(false);
         }
         
-        // Clear loading timeout
-        if (loadingTimeout.current) {
-          clearTimeout(loadingTimeout.current);
-        }
-        
-        // Get current session
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.error('Session error:', sessionError);
+        // Try to get session - but don't block if it fails
+        let session = null;
+        try {
+          const { data: { session: s }, error } = await Promise.race([
+            supabase.auth.getSession(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Session timeout')), 3000))
+          ]);
           
-          // If we have cached data and it's a network error, use cache
-          if (hasCachedData && (sessionError.message.includes('Failed to fetch') || sessionError.message.includes('NetworkError'))) {
-            console.log('📦 Using cached data due to network error');
-            setLoading(false);
+          if (!error) {
+            session = s;
+          }
+        } catch (err) {
+          console.warn('Session fetch failed (non-critical):', err.message);
+          
+          // If we have cache, it's OK to continue without session
+          if (hasCachedData) {
+            console.log('✅ Continuing with cached data despite session error');
             return;
           }
-          
-          if (mounted) {
-            setLoading(false);
-            setError(sessionError.message);
-          }
-          return;
         }
 
         if (!session?.user) {
-          console.log('❌ No session found');
+          console.log('❌ No session');
           
-          // If we have cache but no session, keep the cached data
+          // If we have cache but no session, keep the cache
           if (hasCachedData) {
-            console.log('📦 Keeping cached data despite no session');
-            setLoading(false);
+            console.log('📦 Keeping cached data (no session)');
             return;
           }
           
+          // No cache and no session - clear everything
           if (mounted) {
             setUser(null);
             setMember(null);
             setMess(null);
             setLoading(false);
-            // Clear cache
-            localStorage.removeItem('mess_cache');
             localStorage.removeItem('member_cache');
+            localStorage.removeItem('mess_cache');
           }
           return;
         }
 
-        console.log('✅ Session found for:', session.user.email);
+        console.log('✅ Session found:', session.user.email);
         
         if (mounted) {
           setUser(session.user);
         }
 
-        // Load member data with timeout
-        const memberPromise = supabase
-          .from('members')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .maybeSingle();
-
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Member fetch timeout')), 5000)
-        );
-
-        const { data: memberData, error: memberError } = await Promise.race([
-          memberPromise,
-          timeoutPromise
-        ]).catch(err => {
-          console.error('Member fetch failed:', err);
-          return { data: null, error: err };
-        });
-
-        if (!mounted) return;
-
-        if (memberError) {
-          console.error('Member error:', memberError);
-          setLoading(false);
+        // If we have cache, we're done
+        if (hasCachedData) {
+          console.log('✅ Using cached member/mess data');
           return;
         }
 
-        if (!memberData) {
-          console.log('⚠️ No member found - showing setup');
+        // No cache - need to load from database
+        console.log('🔍 Loading member data...');
+        
+        const { data: memberData, error: memberError } = await Promise.race([
+          supabase.from('members').select('*').eq('user_id', session.user.id).maybeSingle(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Member timeout')), 3000))
+        ]).catch(err => ({ data: null, error: err }));
+
+        if (!mounted) return;
+
+        if (memberError || !memberData) {
+          console.log('⚠️ No member found or error');
           setLoading(false);
           return;
         }
 
         console.log('✅ Member found:', memberData.name);
         setMember(memberData);
-        
-        // Cache member data
         localStorage.setItem('member_cache', JSON.stringify(memberData));
 
-        // Load mess data with timeout
+        // Load mess data
         if (memberData.mess_id) {
-          const messPromise = supabase
-            .from('mess')
-            .select('*')
-            .eq('id', memberData.mess_id)
-            .single();
-
-          const messTimeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Mess fetch timeout')), 5000)
-          );
-
           const { data: messData, error: messError } = await Promise.race([
-            messPromise,
-            messTimeoutPromise
-          ]).catch(err => {
-            console.error('Mess fetch failed:', err);
-            return { data: null, error: err };
-          });
+            supabase.from('mess').select('*').eq('id', memberData.mess_id).single(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Mess timeout')), 3000))
+          ]).catch(err => ({ data: null, error: err }));
 
-          if (!mounted) return;
-
-          if (messError) {
-            console.error('Mess error:', messError);
-          } else if (messData) {
+          if (mounted && messData && !messError) {
             console.log('✅ Mess found:', messData.name);
             setMess(messData);
-            
-            // Cache mess data
             localStorage.setItem('mess_cache', JSON.stringify(messData));
           }
         }
 
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
+        
         console.log('✅ Auth initialization complete');
 
       } catch (err) {
         console.error('❌ Init error:', err);
         if (mounted) {
           setLoading(false);
-          setError(err.message);
         }
       }
     };
 
-    // Set up auth listener
+    // Set up auth state listener
     const setupListener = () => {
       const { data: { subscription } } = supabase.auth.onAuthStateChange(
         async (event, session) => {
@@ -275,10 +251,8 @@ export const AuthProvider = ({ children }) => {
 
           if (event === 'SIGNED_IN' && session?.user) {
             console.log('✅ User signed in');
-            setLoading(true);
             setUser(session.user);
 
-            // Load member data
             const { data: memberData } = await supabase
               .from('members')
               .select('*')
@@ -303,18 +277,18 @@ export const AuthProvider = ({ children }) => {
               }
             }
 
-            if (mounted) setLoading(false);
+            setLoading(false);
 
           } else if (event === 'SIGNED_OUT') {
             console.log('👋 User signed out');
             setUser(null);
             setMember(null);
             setMess(null);
-            localStorage.removeItem('mess_cache');
             localStorage.removeItem('member_cache');
-          } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+            localStorage.removeItem('mess_cache');
+          } else if (event === 'TOKEN_REFRESHED') {
             console.log('🔄 Token refreshed');
-            setUser(session.user);
+            if (session?.user) setUser(session.user);
           }
         }
       );
@@ -325,22 +299,16 @@ export const AuthProvider = ({ children }) => {
     init();
     setupListener();
 
-    // Cleanup
     return () => {
       mounted = false;
-      
-      // Clear loading timeout
       if (loadingTimeout.current) {
         clearTimeout(loadingTimeout.current);
-        loadingTimeout.current = null;
       }
-      
-      // Unsubscribe from auth
       if (authSubscription) {
         authSubscription.unsubscribe();
       }
     };
-  }, []); // CRITICAL: Empty array - run ONCE
+  }, []);
 
   const signUp = async (email, password, userData) => {
     try {
@@ -378,18 +346,10 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       setMember(null);
       setMess(null);
-      
-      // Clear cache
-      localStorage.removeItem('mess_cache');
       localStorage.removeItem('member_cache');
-      
+      localStorage.removeItem('mess_cache');
       await supabase.auth.signOut();
-      
-      // Force reload to clear all state
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 100);
-      
+      setTimeout(() => window.location.href = '/', 100);
       return { error: null };
     } catch (err) {
       console.error('Sign out error:', err);
@@ -429,8 +389,6 @@ export const AuthProvider = ({ children }) => {
 
       setMess(data.mess);
       setMember(data.member);
-      
-      // Cache the data
       localStorage.setItem('mess_cache', JSON.stringify(data.mess));
       localStorage.setItem('member_cache', JSON.stringify(data.member));
       
@@ -456,7 +414,6 @@ export const AuthProvider = ({ children }) => {
       });
 
       if (error) throw error;
-      
       return { data, error: null };
     } catch (err) {
       setError(err.message);
