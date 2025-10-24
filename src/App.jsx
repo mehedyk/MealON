@@ -1,5 +1,5 @@
 // ===========================================
-// src/App.jsx - COMPLETE FIXED VERSION
+// src/App.jsx
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
@@ -55,20 +55,36 @@ const App = () => {
   if (loading) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
-        <div className="text-center">
+        <div className="text-center max-w-md px-4">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <div className={`text-xl mb-4 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
+          <div className={`text-xl mb-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
             {t.loading || 'Loading...'}
           </div>
           <p className={`text-sm mb-4 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
             If this takes too long, try refreshing
           </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
-          >
-            Refresh Page
-          </button>
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={() => {
+                // Clear cache and reload
+                localStorage.clear();
+                window.location.reload();
+              }}
+              className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+            >
+              Clear Cache & Refresh
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className={`px-6 py-2 rounded-lg transition ${
+                darkMode 
+                  ? 'bg-gray-700 text-white hover:bg-gray-600' 
+                  : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+              }`}
+            >
+              Just Refresh
+            </button>
+          </div>
         </div>
       </div>
     );
