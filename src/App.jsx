@@ -1,5 +1,5 @@
 // ===========================================
-//src/App.jsx
+// src/App.jsx - COMPLETE FIXED VERSION
 // ============================================
 import React, { useState, useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
@@ -51,15 +51,24 @@ const App = () => {
     localStorage.setItem('language', language);
   }, [language]);
 
-  // Show loading screen
+  // Show loading screen with timeout and refresh button
   if (loading) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <div className={`text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>
+          <div className={`text-xl mb-4 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
             {t.loading || 'Loading...'}
           </div>
+          <p className={`text-sm mb-4 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            If this takes too long, try refreshing
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+          >
+            Refresh Page
+          </button>
         </div>
       </div>
     );
