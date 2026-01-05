@@ -91,7 +91,7 @@ const Contact = ({ darkMode, t }) => {
                   rel="noopener noreferrer"
                   className="text-blue-600 dark:text-blue-400 hover:underline"
                 >
-                  @mehedyk
+                  mehedyk
                 </a>
               </div>
             </div>

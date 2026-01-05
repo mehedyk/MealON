@@ -19,7 +19,7 @@ const Footer = ({ darkMode, t }) => {
             }`}
           >
             <Github className="h-3 w-3" />
-            <span className="text-xs">@mehedyk</span>
+            <span className="text-xs">mehedyk</span>
           </a>
           <span>PRODUCT</span>
         </div>
