@@ -1,432 +1,531 @@
--- ============================================
--- MEALON - COMPLETE FRESH DATABASE SETUP
--- Run this ENTIRE file in Supabase SQL Editor
--- This will delete EVERYTHING and start fresh
--- ============================================
+-- ============================================================
+-- MEALON v2 — DATABASE SCHEMA
+-- Chunk 1: Core tables + RLS + auth setup
+-- 
+-- INSTRUCTIONS:
+--   1. Open your Supabase project → SQL Editor
+--   2. Paste this ENTIRE file and Run it
+--   3. It is idempotent — safe to re-run
+-- ============================================================
 
--- 🗑️ STEP 1: DELETE EVERYTHING (Nuclear Option)
--- ============================================
+-- ── Extensions ───────────────────────────────────────────────
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";   -- for gen_random_bytes
 
--- Drop all existing policies
-DROP POLICY IF EXISTS members_insert ON members;
-DROP POLICY IF EXISTS members_select ON members;
-DROP POLICY IF EXISTS members_update ON members;
-DROP POLICY IF EXISTS members_update_manager ON members;
-DROP POLICY IF EXISTS members_delete ON members;
+-- ============================================================
+-- TABLES
+-- ============================================================
 
-DROP POLICY IF EXISTS mess_insert ON mess;
-DROP POLICY IF EXISTS mess_select ON mess;
-DROP POLICY IF EXISTS mess_update ON mess;
-DROP POLICY IF EXISTS mess_delete ON mess;
-
-DROP POLICY IF EXISTS meals_insert ON meals;
-DROP POLICY IF EXISTS meals_select ON meals;
-DROP POLICY IF EXISTS meals_update ON meals;
-DROP POLICY IF EXISTS meals_delete ON meals;
-
-DROP POLICY IF EXISTS expenses_insert ON expenses;
-DROP POLICY IF EXISTS expenses_select ON expenses;
-DROP POLICY IF EXISTS expenses_update ON expenses;
-DROP POLICY IF EXISTS expenses_delete ON expenses;
-
-DROP POLICY IF EXISTS menu_items_insert ON menu_items;
-DROP POLICY IF EXISTS menu_items_select ON menu_items;
-DROP POLICY IF EXISTS menu_items_update ON menu_items;
-DROP POLICY IF EXISTS menu_items_delete ON menu_items;
-
-DROP POLICY IF EXISTS rules_insert ON rules;
-DROP POLICY IF EXISTS rules_select ON rules;
-DROP POLICY IF EXISTS rules_update ON rules;
-DROP POLICY IF EXISTS rules_delete ON rules;
-
-DROP POLICY IF EXISTS votes_insert ON votes;
-DROP POLICY IF EXISTS votes_select ON votes;
-DROP POLICY IF EXISTS votes_update ON votes;
-DROP POLICY IF EXISTS votes_delete ON votes;
-
-DROP POLICY IF EXISTS invitations_insert ON invitations;
-DROP POLICY IF EXISTS invitations_select ON invitations;
-DROP POLICY IF EXISTS invitations_update ON invitations;
-DROP POLICY IF EXISTS invitations_delete ON invitations;
-
--- Drop all functions
-DROP FUNCTION IF EXISTS create_mess_with_member CASCADE;
-
--- Drop all tables (in correct order - dependencies first)
-DROP TABLE IF EXISTS votes CASCADE;
-DROP TABLE IF EXISTS invitations CASCADE;
-DROP TABLE IF EXISTS rules CASCADE;
-DROP TABLE IF EXISTS menu_items CASCADE;
-DROP TABLE IF EXISTS expenses CASCADE;
-DROP TABLE IF EXISTS meals CASCADE;
-DROP TABLE IF EXISTS members CASCADE;
-DROP TABLE IF EXISTS mess CASCADE;
-
--- ============================================
--- 🏗️ STEP 2: CREATE FRESH TABLES
--- ============================================
-
--- MESS TABLE (Main container for each mess)
-CREATE TABLE mess (
-  id BIGSERIAL PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  mess_code VARCHAR(6) NOT NULL UNIQUE,
-  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+-- ── mess ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS mess (
+  id          BIGSERIAL PRIMARY KEY,
+  name        VARCHAR(80)  NOT NULL CHECK (char_length(trim(name)) >= 2),
+  mess_code   CHAR(6)      NOT NULL UNIQUE,
+  created_by  UUID         NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- MEMBERS TABLE (Users in each mess)
-CREATE TABLE members (
-  id BIGSERIAL PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  mess_id BIGINT NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
-  name VARCHAR(255) NOT NULL,
-  email VARCHAR(255) NOT NULL,
-  phone VARCHAR(20),
-  country_code VARCHAR(10) DEFAULT '+880',
-  role VARCHAR(50) NOT NULL DEFAULT 'member',
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
+-- ── members ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS members (
+  id           BIGSERIAL PRIMARY KEY,
+  user_id      UUID         NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  mess_id      BIGINT       NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
+  name         VARCHAR(80)  NOT NULL CHECK (char_length(trim(name)) >= 2),
+  email        VARCHAR(254) NOT NULL CHECK (email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
+  phone        VARCHAR(20),
+  role         VARCHAR(20)  NOT NULL DEFAULT 'member'
+                            CHECK (role IN ('manager', 'member')),
+  is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
+  joined_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   UNIQUE(user_id, mess_id)
 );
 
--- MEALS TABLE (Track who ate what and when)
-CREATE TABLE meals (
-  id BIGSERIAL PRIMARY KEY,
-  mess_id BIGINT NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
-  member_id BIGINT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-  meal_date DATE NOT NULL,
-  breakfast BOOLEAN DEFAULT FALSE,
-  lunch BOOLEAN DEFAULT FALSE,
-  dinner BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
+-- ── meals ────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS meals (
+  id          BIGSERIAL PRIMARY KEY,
+  mess_id     BIGINT   NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
+  member_id   BIGINT   NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  meal_date   DATE     NOT NULL CHECK (meal_date <= CURRENT_DATE + INTERVAL '1 day'),
+  breakfast   BOOLEAN  NOT NULL DEFAULT FALSE,
+  lunch       BOOLEAN  NOT NULL DEFAULT FALSE,
+  dinner      BOOLEAN  NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(member_id, meal_date)
 );
 
--- EXPENSES TABLE (Track all expenses)
-CREATE TABLE expenses (
-  id BIGSERIAL PRIMARY KEY,
-  mess_id BIGINT NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
-  paid_by BIGINT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-  description VARCHAR(500) NOT NULL,
-  amount DECIMAL(10,2) NOT NULL,
-  category VARCHAR(50) NOT NULL,
-  expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+-- ── expenses ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS expenses (
+  id            BIGSERIAL PRIMARY KEY,
+  mess_id       BIGINT          NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
+  paid_by       BIGINT          NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  description   VARCHAR(300)    NOT NULL CHECK (char_length(trim(description)) >= 2),
+  amount        NUMERIC(10, 2)  NOT NULL CHECK (amount > 0 AND amount <= 9999999),
+  category      VARCHAR(50)     NOT NULL
+                                CHECK (category IN ('grocery','utility','maintenance','cook','other')),
+  expense_date  DATE            NOT NULL DEFAULT CURRENT_DATE,
+  created_at    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
--- MENU_ITEMS TABLE (Daily menu planning)
-CREATE TABLE menu_items (
-  id BIGSERIAL PRIMARY KEY,
-  mess_id BIGINT NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
-  dish VARCHAR(255) NOT NULL,
-  meal_type VARCHAR(20) NOT NULL,
-  menu_date DATE NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+-- ── menu_items ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS menu_items (
+  id          BIGSERIAL PRIMARY KEY,
+  mess_id     BIGINT       NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
+  dish        VARCHAR(120) NOT NULL CHECK (char_length(trim(dish)) >= 1),
+  meal_type   VARCHAR(20)  NOT NULL CHECK (meal_type IN ('breakfast','lunch','dinner')),
+  menu_date   DATE         NOT NULL,
+  created_by  BIGINT       NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- RULES TABLE (Mess rules)
-CREATE TABLE rules (
-  id BIGSERIAL PRIMARY KEY,
-  mess_id BIGINT NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
-  title VARCHAR(255) NOT NULL,
-  description TEXT NOT NULL,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+-- ── rules ────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS rules (
+  id          BIGSERIAL PRIMARY KEY,
+  mess_id     BIGINT       NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
+  title       VARCHAR(120) NOT NULL CHECK (char_length(trim(title)) >= 2),
+  description TEXT         NOT NULL CHECK (char_length(trim(description)) >= 2),
+  is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
+  created_by  BIGINT       NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- VOTES TABLE (Manager voting)
-CREATE TABLE votes (
-  id BIGSERIAL PRIMARY KEY,
-  mess_id BIGINT NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
-  voter_id BIGINT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-  candidate_id BIGINT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-  voting_period VARCHAR(20) NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(voter_id, mess_id, voting_period)
+-- ── deposits ─────────────────────────────────────────────────
+-- Tracks money each member has deposited into the mess fund.
+CREATE TABLE IF NOT EXISTS deposits (
+  id            BIGSERIAL PRIMARY KEY,
+  mess_id       BIGINT         NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
+  member_id     BIGINT         NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  amount        NUMERIC(10,2)  NOT NULL CHECK (amount > 0 AND amount <= 9999999),
+  note          VARCHAR(200),
+  deposit_date  DATE           NOT NULL DEFAULT CURRENT_DATE,
+  created_at    TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
 
--- INVITATIONS TABLE (Invite/join requests)
-CREATE TABLE invitations (
-  id BIGSERIAL PRIMARY KEY,
-  mess_id BIGINT NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
-  inviter_id BIGINT REFERENCES members(id) ON DELETE SET NULL,
-  invitee_email VARCHAR(255) NOT NULL,
-  invitee_name VARCHAR(255),
-  invitation_type VARCHAR(50) NOT NULL,
-  status VARCHAR(20) NOT NULL DEFAULT 'pending',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+-- ── votes ────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS votes (
+  id             BIGSERIAL PRIMARY KEY,
+  mess_id        BIGINT      NOT NULL REFERENCES mess(id) ON DELETE CASCADE,
+  voter_id       BIGINT      NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  candidate_id   BIGINT      NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  voting_period  VARCHAR(7)  NOT NULL,   -- YYYY-MM
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(voter_id, mess_id, voting_period),
+  CHECK (voter_id <> candidate_id)
 );
 
--- Create indexes for better performance
-CREATE INDEX idx_members_user_id ON members(user_id);
-CREATE INDEX idx_members_mess_id ON members(mess_id);
-CREATE INDEX idx_meals_mess_id ON meals(mess_id);
-CREATE INDEX idx_meals_meal_date ON meals(meal_date);
-CREATE INDEX idx_expenses_mess_id ON expenses(mess_id);
-CREATE INDEX idx_votes_mess_id ON votes(mess_id);
+-- ============================================================
+-- INDEXES
+-- ============================================================
+CREATE INDEX IF NOT EXISTS idx_members_user_id   ON members(user_id);
+CREATE INDEX IF NOT EXISTS idx_members_mess_id   ON members(mess_id);
+CREATE INDEX IF NOT EXISTS idx_meals_mess_date   ON meals(mess_id, meal_date);
+CREATE INDEX IF NOT EXISTS idx_expenses_mess_id  ON expenses(mess_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_date     ON expenses(expense_date);
+CREATE INDEX IF NOT EXISTS idx_deposits_mess_id  ON deposits(mess_id);
+CREATE INDEX IF NOT EXISTS idx_votes_mess_period ON votes(mess_id, voting_period);
 
--- ============================================
--- 🔒 STEP 3: ENABLE RLS ON ALL TABLES
--- ============================================
-
-ALTER TABLE mess ENABLE ROW LEVEL SECURITY;
-ALTER TABLE members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE meals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE menu_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE rules ENABLE ROW LEVEL SECURITY;
-ALTER TABLE votes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE invitations ENABLE ROW LEVEL SECURITY;
-
--- ============================================
--- 🛡️ STEP 4: CREATE SIMPLE, WORKING RLS POLICIES
--- ============================================
-
--- MESS POLICIES (Simple and permissive)
-CREATE POLICY mess_all ON mess
-  FOR ALL
-  TO authenticated
-  USING (
-    id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-    OR created_by = auth.uid()
-  )
-  WITH CHECK (created_by = auth.uid());
-
--- MEMBERS POLICIES
-CREATE POLICY members_all ON members
-  FOR ALL
-  TO authenticated
-  USING (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  )
-  WITH CHECK (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-    OR user_id = auth.uid()
-  );
-
--- MEALS POLICIES
-CREATE POLICY meals_all ON meals
-  FOR ALL
-  TO authenticated
-  USING (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  )
-  WITH CHECK (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  );
-
--- EXPENSES POLICIES
-CREATE POLICY expenses_all ON expenses
-  FOR ALL
-  TO authenticated
-  USING (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  )
-  WITH CHECK (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  );
-
--- MENU_ITEMS POLICIES
-CREATE POLICY menu_items_all ON menu_items
-  FOR ALL
-  TO authenticated
-  USING (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  )
-  WITH CHECK (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  );
-
--- RULES POLICIES
-CREATE POLICY rules_all ON rules
-  FOR ALL
-  TO authenticated
-  USING (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  )
-  WITH CHECK (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  );
-
--- VOTES POLICIES
-CREATE POLICY votes_all ON votes
-  FOR ALL
-  TO authenticated
-  USING (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  )
-  WITH CHECK (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  );
-
--- INVITATIONS POLICIES
-CREATE POLICY invitations_all ON invitations
-  FOR ALL
-  TO authenticated
-  USING (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-    OR invitee_email = auth.email()
-  )
-  WITH CHECK (
-    mess_id IN (SELECT mess_id FROM members WHERE user_id = auth.uid())
-  );
-
--- ============================================
--- 🎯 STEP 5: CREATE THE MAGIC FUNCTION
--- ============================================
-
-CREATE OR REPLACE FUNCTION create_mess_with_member(
-  p_mess_name TEXT,
-  p_user_id UUID,
-  p_name TEXT,
-  p_email TEXT,
-  p_phone TEXT DEFAULT '',
-  p_country_code TEXT DEFAULT '+880'
-)
-RETURNS JSON
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_mess_id BIGINT;
-  v_member_id BIGINT;
-  v_mess_code TEXT;
-  v_result JSON;
+-- ── Auto-update updated_at ────────────────────────────────────
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
-  -- Validate ALL inputs
-  IF p_mess_name IS NULL OR trim(p_mess_name) = '' THEN
-    RAISE EXCEPTION 'Mess name is required';
-  END IF;
-  
-  IF p_user_id IS NULL THEN
-    RAISE EXCEPTION 'User ID is required';
-  END IF;
-  
-  IF p_name IS NULL OR trim(p_name) = '' THEN
-    RAISE EXCEPTION 'Name is required';
-  END IF;
-  
-  IF p_email IS NULL OR trim(p_email) = '' THEN
-    RAISE EXCEPTION 'Email is required';
-  END IF;
-
-  -- Generate unique 6-digit code
-  LOOP
-    v_mess_code := LPAD(FLOOR(RANDOM() * 1000000)::TEXT, 6, '0');
-    EXIT WHEN NOT EXISTS (SELECT 1 FROM mess WHERE mess_code = v_mess_code);
-  END LOOP;
-
-  -- Create mess
-  INSERT INTO mess (name, mess_code, created_by)
-  VALUES (trim(p_mess_name), v_mess_code, p_user_id)
-  RETURNING id INTO v_mess_id;
-
-  -- Create member
-  INSERT INTO members (
-    user_id, 
-    mess_id, 
-    name, 
-    email, 
-    phone, 
-    country_code, 
-    role
-  )
-  VALUES (
-    p_user_id,
-    v_mess_id,
-    trim(p_name),
-    trim(p_email),
-    COALESCE(trim(p_phone), ''),
-    COALESCE(trim(p_country_code), '+880'),
-    'manager'
-  )
-  RETURNING id INTO v_member_id;
-
-  -- Return result
-  SELECT json_build_object(
-    'mess', json_build_object(
-      'id', m.id,
-      'name', m.name,
-      'mess_code', m.mess_code,
-      'created_by', m.created_by,
-      'created_at', m.created_at
-    ),
-    'member', json_build_object(
-      'id', mb.id,
-      'user_id', mb.user_id,
-      'mess_id', mb.mess_id,
-      'name', mb.name,
-      'email', mb.email,
-      'phone', mb.phone,
-      'country_code', mb.country_code,
-      'role', mb.role,
-      'created_at', mb.created_at
-    )
-  )
-  INTO v_result
-  FROM mess m
-  JOIN members mb ON mb.mess_id = m.id
-  WHERE m.id = v_mess_id AND mb.id = v_member_id;
-
-  RETURN v_result;
-
-EXCEPTION
-  WHEN OTHERS THEN
-    RAISE EXCEPTION 'Error: %', SQLERRM;
+  NEW.updated_at = NOW();
+  RETURN NEW;
 END;
 $$;
 
--- Grant permissions
-GRANT EXECUTE ON FUNCTION create_mess_with_member TO authenticated;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+DO $$ BEGIN
+  CREATE TRIGGER trg_mess_updated_at
+    BEFORE UPDATE ON mess FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- ============================================
--- ✅ STEP 6: VERIFY EVERYTHING
--- ============================================
+DO $$ BEGIN
+  CREATE TRIGGER trg_members_updated_at
+    BEFORE UPDATE ON members FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- Check tables
-SELECT 
-  tablename,
-  CASE WHEN rowsecurity THEN '✅ RLS Enabled' ELSE '❌ RLS Disabled' END as rls_status
-FROM pg_tables 
-WHERE schemaname = 'public' 
-  AND tablename IN ('mess', 'members', 'meals', 'expenses', 'menu_items', 'rules', 'votes', 'invitations')
-ORDER BY tablename;
+DO $$ BEGIN
+  CREATE TRIGGER trg_meals_updated_at
+    BEFORE UPDATE ON meals FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- Check policies
-SELECT 
-  tablename,
-  COUNT(*) as policy_count
-FROM pg_policies
-WHERE schemaname = 'public'
-GROUP BY tablename
-ORDER BY tablename;
+DO $$ BEGIN
+  CREATE TRIGGER trg_expenses_updated_at
+    BEFORE UPDATE ON expenses FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- Check function
-SELECT 
-  routine_name,
-  security_type,
-  data_type
-FROM information_schema.routines
-WHERE routine_name = 'create_mess_with_member';
+-- ============================================================
+-- ROW LEVEL SECURITY
+-- ============================================================
+ALTER TABLE mess        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE members     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE meals       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE expenses    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE menu_items  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rules       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deposits    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE votes       ENABLE ROW LEVEL SECURITY;
 
--- ============================================
--- 🎉 SUCCESS MESSAGE
--- ============================================
-DO $$
+-- Helper: is the calling user an active member of this mess?
+CREATE OR REPLACE FUNCTION is_mess_member(p_mess_id BIGINT)
+RETURNS BOOLEAN
+LANGUAGE sql SECURITY DEFINER STABLE
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM members
+    WHERE user_id = auth.uid()
+      AND mess_id = p_mess_id
+      AND is_active = TRUE
+  );
+$$;
+
+-- Helper: is the calling user the manager of this mess?
+CREATE OR REPLACE FUNCTION is_mess_manager(p_mess_id BIGINT)
+RETURNS BOOLEAN
+LANGUAGE sql SECURITY DEFINER STABLE
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM members
+    WHERE user_id = auth.uid()
+      AND mess_id = p_mess_id
+      AND role = 'manager'
+      AND is_active = TRUE
+  );
+$$;
+
+-- ── mess policies ──────────────────────────────────────────────
+DROP POLICY IF EXISTS mess_select ON mess;
+CREATE POLICY mess_select ON mess
+  FOR SELECT TO authenticated
+  USING (is_mess_member(id));
+
+DROP POLICY IF EXISTS mess_insert ON mess;
+CREATE POLICY mess_insert ON mess
+  FOR INSERT TO authenticated
+  WITH CHECK (created_by = auth.uid());
+
+DROP POLICY IF EXISTS mess_update ON mess;
+CREATE POLICY mess_update ON mess
+  FOR UPDATE TO authenticated
+  USING (is_mess_manager(id))
+  WITH CHECK (is_mess_manager(id));
+
+DROP POLICY IF EXISTS mess_delete ON mess;
+CREATE POLICY mess_delete ON mess
+  FOR DELETE TO authenticated
+  USING (created_by = auth.uid());
+
+-- ── members policies ──────────────────────────────────────────
+DROP POLICY IF EXISTS members_select ON members;
+CREATE POLICY members_select ON members
+  FOR SELECT TO authenticated
+  USING (is_mess_member(mess_id));
+
+DROP POLICY IF EXISTS members_insert ON members;
+CREATE POLICY members_insert ON members
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    -- Can insert yourself
+    user_id = auth.uid()
+    OR
+    -- OR a manager inserts someone else
+    is_mess_manager(mess_id)
+  );
+
+DROP POLICY IF EXISTS members_update ON members;
+CREATE POLICY members_update ON members
+  FOR UPDATE TO authenticated
+  USING (
+    -- Own record OR manager
+    user_id = auth.uid() OR is_mess_manager(mess_id)
+  )
+  WITH CHECK (
+    user_id = auth.uid() OR is_mess_manager(mess_id)
+  );
+
+DROP POLICY IF EXISTS members_delete ON members;
+CREATE POLICY members_delete ON members
+  FOR DELETE TO authenticated
+  USING (is_mess_manager(mess_id));
+
+-- ── meals policies ────────────────────────────────────────────
+DROP POLICY IF EXISTS meals_select ON meals;
+CREATE POLICY meals_select ON meals
+  FOR SELECT TO authenticated
+  USING (is_mess_member(mess_id));
+
+DROP POLICY IF EXISTS meals_insert ON meals;
+CREATE POLICY meals_insert ON meals
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    is_mess_member(mess_id)
+    AND EXISTS (
+      SELECT 1 FROM members
+      WHERE id = member_id AND user_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS meals_update ON meals;
+CREATE POLICY meals_update ON meals
+  FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM members
+      WHERE id = member_id AND user_id = auth.uid()
+    )
+    OR is_mess_manager(mess_id)
+  );
+
+DROP POLICY IF EXISTS meals_delete ON meals;
+CREATE POLICY meals_delete ON meals
+  FOR DELETE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM members
+      WHERE id = member_id AND user_id = auth.uid()
+    )
+    OR is_mess_manager(mess_id)
+  );
+
+-- ── expenses policies ─────────────────────────────────────────
+DROP POLICY IF EXISTS expenses_select ON expenses;
+CREATE POLICY expenses_select ON expenses
+  FOR SELECT TO authenticated
+  USING (is_mess_member(mess_id));
+
+DROP POLICY IF EXISTS expenses_insert ON expenses;
+CREATE POLICY expenses_insert ON expenses
+  FOR INSERT TO authenticated
+  WITH CHECK (is_mess_member(mess_id));
+
+DROP POLICY IF EXISTS expenses_update ON expenses;
+CREATE POLICY expenses_update ON expenses
+  FOR UPDATE TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM members WHERE id = paid_by AND user_id = auth.uid())
+    OR is_mess_manager(mess_id)
+  );
+
+DROP POLICY IF EXISTS expenses_delete ON expenses;
+CREATE POLICY expenses_delete ON expenses
+  FOR DELETE TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM members WHERE id = paid_by AND user_id = auth.uid())
+    OR is_mess_manager(mess_id)
+  );
+
+-- ── menu_items policies ───────────────────────────────────────
+DROP POLICY IF EXISTS menu_items_select ON menu_items;
+CREATE POLICY menu_items_select ON menu_items
+  FOR SELECT TO authenticated USING (is_mess_member(mess_id));
+
+DROP POLICY IF EXISTS menu_items_insert ON menu_items;
+CREATE POLICY menu_items_insert ON menu_items
+  FOR INSERT TO authenticated WITH CHECK (is_mess_member(mess_id));
+
+DROP POLICY IF EXISTS menu_items_delete ON menu_items;
+CREATE POLICY menu_items_delete ON menu_items
+  FOR DELETE TO authenticated
+  USING (is_mess_manager(mess_id));
+
+-- ── rules policies ────────────────────────────────────────────
+DROP POLICY IF EXISTS rules_select ON rules;
+CREATE POLICY rules_select ON rules
+  FOR SELECT TO authenticated USING (is_mess_member(mess_id));
+
+DROP POLICY IF EXISTS rules_insert ON rules;
+CREATE POLICY rules_insert ON rules
+  FOR INSERT TO authenticated WITH CHECK (is_mess_manager(mess_id));
+
+DROP POLICY IF EXISTS rules_update ON rules;
+CREATE POLICY rules_update ON rules
+  FOR UPDATE TO authenticated
+  USING (is_mess_manager(mess_id)) WITH CHECK (is_mess_manager(mess_id));
+
+DROP POLICY IF EXISTS rules_delete ON rules;
+CREATE POLICY rules_delete ON rules
+  FOR DELETE TO authenticated USING (is_mess_manager(mess_id));
+
+-- ── deposits policies ─────────────────────────────────────────
+DROP POLICY IF EXISTS deposits_select ON deposits;
+CREATE POLICY deposits_select ON deposits
+  FOR SELECT TO authenticated USING (is_mess_member(mess_id));
+
+DROP POLICY IF EXISTS deposits_insert ON deposits;
+CREATE POLICY deposits_insert ON deposits
+  FOR INSERT TO authenticated WITH CHECK (is_mess_manager(mess_id));
+
+DROP POLICY IF EXISTS deposits_delete ON deposits;
+CREATE POLICY deposits_delete ON deposits
+  FOR DELETE TO authenticated USING (is_mess_manager(mess_id));
+
+-- ── votes policies ────────────────────────────────────────────
+DROP POLICY IF EXISTS votes_select ON votes;
+CREATE POLICY votes_select ON votes
+  FOR SELECT TO authenticated USING (is_mess_member(mess_id));
+
+DROP POLICY IF EXISTS votes_insert ON votes;
+CREATE POLICY votes_insert ON votes
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    is_mess_member(mess_id)
+    AND EXISTS (SELECT 1 FROM members WHERE id = voter_id AND user_id = auth.uid())
+  );
+
+DROP POLICY IF EXISTS votes_delete ON votes;
+CREATE POLICY votes_delete ON votes
+  FOR DELETE TO authenticated
+  USING (EXISTS (SELECT 1 FROM members WHERE id = voter_id AND user_id = auth.uid()));
+
+-- ============================================================
+-- STORED PROCEDURES (secure, SECURITY DEFINER)
+-- ============================================================
+
+-- ── create_mess : atomically creates mess + adds creator as manager ──
+CREATE OR REPLACE FUNCTION create_mess(
+  p_mess_name  TEXT,
+  p_user_id    UUID,
+  p_name       TEXT,
+  p_email      TEXT,
+  p_phone      TEXT DEFAULT ''
+)
+RETURNS JSON
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_mess_id   BIGINT;
+  v_member_id BIGINT;
+  v_code      CHAR(6);
+  v_attempts  INT := 0;
 BEGIN
-  RAISE NOTICE '🎉 ============================================';
-  RAISE NOTICE '🎉 DATABASE RESET COMPLETE!';
-  RAISE NOTICE '🎉 All tables, policies, and functions created';
-  RAISE NOTICE '🎉 You can now test from your React app!';
-  RAISE NOTICE '🎉 ============================================';
-END $$;
+  -- Input validation (server-side, belt-and-suspenders)
+  IF trim(p_mess_name) = '' OR p_mess_name IS NULL THEN
+    RAISE EXCEPTION 'VALIDATION: Mess name is required';
+  END IF;
+  IF length(trim(p_mess_name)) < 2 THEN
+    RAISE EXCEPTION 'VALIDATION: Mess name must be at least 2 characters';
+  END IF;
+  IF length(trim(p_mess_name)) > 80 THEN
+    RAISE EXCEPTION 'VALIDATION: Mess name is too long';
+  END IF;
+  IF trim(p_name) = '' OR p_name IS NULL THEN
+    RAISE EXCEPTION 'VALIDATION: Your name is required';
+  END IF;
+  IF p_email IS NULL OR p_email NOT LIKE '%@%' THEN
+    RAISE EXCEPTION 'VALIDATION: Valid email is required';
+  END IF;
+  -- Prevent a user creating multiple messes (one mess per user for now)
+  IF EXISTS (SELECT 1 FROM members WHERE user_id = p_user_id AND is_active = TRUE) THEN
+    RAISE EXCEPTION 'ALREADY_IN_MESS: You are already in a mess. Leave it first.';
+  END IF;
+
+  -- Generate a unique alphanumeric 6-char code
+  LOOP
+    v_code := upper(substring(encode(gen_random_bytes(4), 'hex'), 1, 6));
+    EXIT WHEN NOT EXISTS (SELECT 1 FROM mess WHERE mess_code = v_code);
+    v_attempts := v_attempts + 1;
+    IF v_attempts > 20 THEN
+      RAISE EXCEPTION 'Could not generate a unique mess code. Try again.';
+    END IF;
+  END LOOP;
+
+  INSERT INTO mess (name, mess_code, created_by)
+  VALUES (trim(p_mess_name), v_code, p_user_id)
+  RETURNING id INTO v_mess_id;
+
+  INSERT INTO members (user_id, mess_id, name, email, phone, role)
+  VALUES (p_user_id, v_mess_id, trim(p_name), lower(trim(p_email)), trim(p_phone), 'manager')
+  RETURNING id INTO v_member_id;
+
+  RETURN json_build_object(
+    'mess_id',    v_mess_id,
+    'mess_code',  v_code,
+    'member_id',  v_member_id
+  );
+END;
+$$;
+
+-- ── join_mess : join an existing mess by code ─────────────────
+CREATE OR REPLACE FUNCTION join_mess(
+  p_code     TEXT,
+  p_user_id  UUID,
+  p_name     TEXT,
+  p_email    TEXT,
+  p_phone    TEXT DEFAULT ''
+)
+RETURNS JSON
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_mess      mess%ROWTYPE;
+  v_member_id BIGINT;
+BEGIN
+  -- Validation
+  IF trim(p_code) = '' OR p_code IS NULL THEN
+    RAISE EXCEPTION 'VALIDATION: Mess code is required';
+  END IF;
+  IF trim(p_name) = '' OR p_name IS NULL THEN
+    RAISE EXCEPTION 'VALIDATION: Your name is required';
+  END IF;
+
+  -- Look up mess — case-insensitive
+  SELECT * INTO v_mess FROM mess WHERE upper(trim(p_code)) = mess_code LIMIT 1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND: No mess found with that code. Double-check it.';
+  END IF;
+
+  -- Already a member?
+  IF EXISTS (
+    SELECT 1 FROM members
+    WHERE user_id = p_user_id AND mess_id = v_mess.id AND is_active = TRUE
+  ) THEN
+    RAISE EXCEPTION 'ALREADY_MEMBER: You are already in this mess.';
+  END IF;
+
+  -- Already in ANY other mess?
+  IF EXISTS (
+    SELECT 1 FROM members WHERE user_id = p_user_id AND is_active = TRUE
+  ) THEN
+    RAISE EXCEPTION 'ALREADY_IN_MESS: You are already in another mess. Leave it first.';
+  END IF;
+
+  INSERT INTO members (user_id, mess_id, name, email, phone, role)
+  VALUES (p_user_id, v_mess.id, trim(p_name), lower(trim(p_email)), trim(p_phone), 'member')
+  ON CONFLICT (user_id, mess_id) DO UPDATE
+    SET is_active = TRUE, name = trim(p_name), updated_at = NOW()
+  RETURNING id INTO v_member_id;
+
+  RETURN json_build_object(
+    'mess_id',    v_mess.id,
+    'mess_name',  v_mess.name,
+    'mess_code',  v_mess.mess_code,
+    'member_id',  v_member_id
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION create_mess  TO authenticated;
+GRANT EXECUTE ON FUNCTION join_mess    TO authenticated;
+GRANT EXECUTE ON FUNCTION is_mess_member  TO authenticated;
+GRANT EXECUTE ON FUNCTION is_mess_manager TO authenticated;
+
+-- ============================================================
+-- VERIFY (run this to confirm everything is set up)
+-- ============================================================
+SELECT
+  t.tablename,
+  CASE WHEN t.rowsecurity THEN '✅ RLS on' ELSE '❌ RLS OFF' END AS rls,
+  COUNT(p.policyname) AS policies
+FROM pg_tables t
+LEFT JOIN pg_policies p
+  ON p.tablename = t.tablename AND p.schemaname = 'public'
+WHERE t.schemaname = 'public'
+  AND t.tablename IN ('mess','members','meals','expenses','menu_items','rules','deposits','votes')
+GROUP BY t.tablename, t.rowsecurity
+ORDER BY t.tablename;
