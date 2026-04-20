@@ -1,8 +1,8 @@
 node_modules/
 dist/
+db/schema.sql
 .env
 .env.local
 .env.production
 .DS_Store
 *.log
-db/schema.sql
