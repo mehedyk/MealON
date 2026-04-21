@@ -1,6 +1,5 @@
 node_modules/
 dist/
-db/schema.sql
 .env
 .env.local
 .env.production
